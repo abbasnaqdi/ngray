@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
+	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
+	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
+	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 	"github.com/abbasnaqdi/ng-ray/internal/version"
 )
@@ -49,6 +54,10 @@ func run(args []string) error {
 		return nil
 	case "config":
 		return cmdConfig(args[1:])
+	case "server":
+		return cmdServer(args[1:])
+	case "client":
+		return cmdClient(args[1:])
 	case "sni":
 		return cmdSNI(args[1:])
 	case "firewall":
@@ -102,6 +111,94 @@ func cmdSNI(args []string) error {
 		}
 	})
 	return nil
+}
+
+// cmdServer provisions or repairs the server.
+func cmdServer(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: ngray server setup|status")
+	}
+	switch args[0] {
+	case "setup":
+		if os.Geteuid() != 0 {
+			return fmt.Errorf("server setup must run as root")
+		}
+		d, err := server.Setup(context.Background(), server.Options{
+			ConfigPath: config.Path(),
+			StatePath:  state.Path(),
+			Confirm:    askYesNo,
+			Log:        func(f string, a ...any) { fmt.Printf("  "+f+"\n", a...) },
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("\ndone — %d endpoint(s)\n", len(d.Endpoints))
+		st, _ := state.Load(state.Path())
+		return server.RenderClient(os.Stdout, st, false)
+	case "status":
+		return cmdStatus()
+	default:
+		return fmt.Errorf("usage: ngray server setup|status")
+	}
+}
+
+// cmdClient renders share links, QR codes and the subscribe URL.
+func cmdClient(args []string) error {
+	st, err := state.Load(state.Path())
+	if err != nil {
+		return err
+	}
+	qr := len(args) > 1 && args[1] == "--qr"
+	if len(args) > 0 && args[0] == "singbox" {
+		b, err := server.SingboxJSON(st)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	return server.RenderClient(os.Stdout, st, qr)
+}
+
+// cmdStatus reports each core's installed version, service state and latest release.
+func cmdStatus() error {
+	ctx := context.Background()
+	sys := system.New()
+	fmt.Printf("%-10s %-10s %-8s %-10s\n", "CORE", "INSTALLED", "ACTIVE", "LATEST")
+	for _, core := range cores.Registry() {
+		ver, ok := core.Installed(ctx, sys)
+		if !ok {
+			ver = "-"
+		}
+		active := "no"
+		if sys.IsActive(ctx, core.Service()) {
+			active = "yes"
+		}
+		latest, _ := sys.LatestVersion(ctx, core.Repo())
+		mark := ""
+		if ok && latest != "" && ver != latest {
+			mark = "  ⬆ update"
+		}
+		fmt.Printf("%-10s %-10s %-8s %-10s%s\n", core.Name(), ver, active, dash(latest), mark)
+	}
+	return nil
+}
+
+func dash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+func askYesNo(prompt string) bool {
+	fmt.Printf("%s [Y/n] ", prompt)
+	sc := bufio.NewScanner(os.Stdin)
+	if !sc.Scan() {
+		return true
+	}
+	ans := strings.ToLower(strings.TrimSpace(sc.Text()))
+	return ans == "" || ans == "y" || ans == "yes"
 }
 
 // cmdFirewall derives the public-port ruleset from config and applies it.

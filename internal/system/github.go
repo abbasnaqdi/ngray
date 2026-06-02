@@ -43,11 +43,14 @@ func (e *Env) latestRelease(ctx context.Context, repo string) (*ghRelease, error
 	return &r, nil
 }
 
-// LatestVersion returns the newest release tag of repo, stripped of a leading "v".
+// LatestVersion returns the newest release's semver (e.g. "app/v2.9.2" -> "2.9.2").
 func (e *Env) LatestVersion(ctx context.Context, repo string) (string, error) {
 	r, err := e.latestRelease(ctx, repo)
 	if err != nil {
 		return "", err
+	}
+	if v := ParseSemver(r.TagName); v != "" {
+		return v, nil
 	}
 	return strings.TrimPrefix(r.TagName, "v"), nil
 }

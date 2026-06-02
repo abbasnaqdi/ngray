@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/abbasnaqdi/ng-ray/internal/links"
 )
 
 const FileName = "proxy-state.json"
@@ -34,6 +36,15 @@ type State struct {
 	Keys      map[string]Keypair `json:"keys,omitempty"`
 	Secrets   map[string]Secret  `json:"secrets,omitempty"`
 	Ports     map[string]int     `json:"ports,omitempty"`
+	Deploy    *Deploy            `json:"deploy,omitempty"`
+}
+
+// Deploy is the snapshot of the last successful provisioning, so client output
+// can be rendered without re-running the build.
+type Deploy struct {
+	Endpoints []links.Endpoint  `json:"endpoints,omitempty"`
+	Notes     map[string]string `json:"notes,omitempty"`
+	SubURL    string            `json:"sub_url,omitempty"`
 }
 
 func Path() string {
