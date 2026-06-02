@@ -16,6 +16,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
+	"github.com/abbasnaqdi/ng-ray/internal/tui"
 	"github.com/abbasnaqdi/ng-ray/internal/version"
 )
 
@@ -42,9 +43,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		// TUI lands here in a later phase; for now show usage.
-		fmt.Print(usage)
-		return nil
+		return tui.Run()
 	}
 	switch args[0] {
 	case "version", "-v", "--version":
@@ -67,6 +66,8 @@ func run(args []string) error {
 		return cmdUpdate(args[1:])
 	case "scan":
 		return cdnscan.Run()
+	case "regen":
+		return cmdRegen()
 	default:
 		fmt.Print(usage)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -176,6 +177,23 @@ func cmdUpdate(args []string) error {
 		return fmt.Errorf("update must run as root")
 	}
 	return server.UpdateCores(ctx, askYesNo, log)
+}
+
+// cmdRegen clears generated credentials/keys/ports so the next setup regenerates them.
+func cmdRegen() error {
+	if !askYesNo("regenerate ALL keys, credentials and the subscribe token?") {
+		return nil
+	}
+	st, err := state.Load(state.Path())
+	if err != nil {
+		return err
+	}
+	st.Keys, st.Secrets, st.Ports, st.SubToken, st.Deploy = nil, nil, nil, "", nil
+	if err := st.Save(); err != nil {
+		return err
+	}
+	fmt.Println("cleared — run `ngray server setup` to regenerate and apply")
+	return nil
 }
 
 // cmdStatus reports each core's installed version, service state and latest release.
