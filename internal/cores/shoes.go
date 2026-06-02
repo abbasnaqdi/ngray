@@ -101,10 +101,7 @@ func (Shoes) Build(p *Plan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := os.MkdirAll(shoesDir, 0o755); err != nil {
-		return Result{}, err
-	}
-	return res, os.WriteFile(filepath.Join(shoesDir, "server.yaml"), out, 0o644)
+	return res, p.Sys.WriteFile(filepath.Join(shoesDir, "server.yaml"), out, 0o644)
 }
 
 // shared credential helpers (stable per config id) -------------------------

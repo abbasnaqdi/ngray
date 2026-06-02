@@ -2,19 +2,13 @@ package system
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 )
 
 const unitDir = "/etc/systemd/system"
 
 func (e *Env) WriteUnit(name, contents string) error {
-	return os.WriteFile(filepath.Join(unitDir, name), []byte(contents), 0o644)
-}
-
-// WriteFile writes contents to path with standard 0644 permissions.
-func WriteFile(path, contents string) error {
-	return os.WriteFile(path, []byte(contents), 0o644)
+	return e.WriteString(filepath.Join(unitDir, name), contents, 0o644)
 }
 
 func (e *Env) DaemonReload(ctx context.Context) error {

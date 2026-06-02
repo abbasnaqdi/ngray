@@ -3,8 +3,6 @@ package cores
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -82,8 +80,5 @@ func (Singbox) Build(p *Plan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(singboxConf), 0o755); err != nil {
-		return Result{}, err
-	}
-	return res, os.WriteFile(singboxConf, out, 0o644)
+	return res, p.Sys.WriteFile(singboxConf, out, 0o644)
 }

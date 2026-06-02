@@ -126,12 +126,19 @@ func cmdServer(args []string) error {
 	}
 	switch args[0] {
 	case "setup":
-		if os.Geteuid() != 0 {
-			return fmt.Errorf("server setup must run as root")
+		sandbox := contains(args, "--sandbox")
+		root := flagValue(args, "--root")
+		if root != "" {
+			sandbox = true
+		}
+		if !sandbox && os.Geteuid() != 0 {
+			return fmt.Errorf("server setup must run as root (or pass --sandbox for local testing)")
 		}
 		d, err := server.Setup(context.Background(), server.Options{
 			ConfigPath: config.Path(),
 			StatePath:  state.Path(),
+			Sandbox:    sandbox,
+			Root:       root,
 			Confirm:    askYesNo,
 			Log:        func(f string, a ...any) { fmt.Printf("  "+f+"\n", a...) },
 		})
@@ -284,6 +291,19 @@ func contains(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// flagValue returns the value after `name` in args, or "".
+func flagValue(args []string, name string) string {
+	for i, a := range args {
+		if a == name && i+1 < len(args) {
+			return args[i+1]
+		}
+		if v, ok := strings.CutPrefix(a, name+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 func candidatesPath() string {

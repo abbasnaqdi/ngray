@@ -4,8 +4,8 @@ package sub
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+
+	"github.com/abbasnaqdi/ng-ray/internal/system"
 )
 
 const (
@@ -22,9 +22,6 @@ func URL(frontSNI, token string) string {
 }
 
 // WriteBundle persists the base64 subscription content served at /s/<token>.
-func WriteBundle(content string) error {
-	if err := os.MkdirAll(filepath.Dir(BundleFile), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(BundleFile, []byte(content), 0o644)
+func WriteBundle(sys *system.Env, content string) error {
+	return sys.WriteString(BundleFile, content, 0o644)
 }

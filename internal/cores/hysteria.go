@@ -35,10 +35,7 @@ func (Hysteria) Install(ctx context.Context, sys *system.Env) error {
 
 func (Hysteria) Build(p *Plan) (Result, error) {
 	h := p.Cfg.Cores.Hysteria2
-	if err := os.MkdirAll(hyDir, 0o755); err != nil {
-		return Result{}, err
-	}
-	if err := system.GenSelfSigned(h.SNI, hyDir+"/server.crt", hyDir+"/server.key"); err != nil {
+	if err := p.Sys.GenSelfSigned(h.SNI, hyDir+"/server.crt", hyDir+"/server.key"); err != nil {
 		return Result{}, err
 	}
 	auth := p.St.Secret("hysteria|auth", func() state.Secret { return state.Secret{Password: state.NewPassword(20)} }).Password
@@ -63,7 +60,7 @@ func (Hysteria) Build(p *Plan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := os.WriteFile(hyDir+"/config.yaml", out, 0o644); err != nil {
+	if err := p.Sys.WriteFile(hyDir+"/config.yaml", out, 0o644); err != nil {
 		return Result{}, err
 	}
 	return Result{Endpoints: []links.Endpoint{{

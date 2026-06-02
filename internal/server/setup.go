@@ -21,6 +21,8 @@ import (
 type Options struct {
 	ConfigPath string
 	StatePath  string
+	Sandbox    bool                          // redirect writes + skip host mutations
+	Root       string                        // sandbox dir (default ./sandbox)
 	Confirm    func(prompt string) bool      // install permission gate
 	Log        func(format string, a ...any) // progress output
 }
@@ -41,6 +43,14 @@ func (o Options) log(f string, a ...any) {
 // Setup provisions the server and returns the resulting deployment snapshot.
 func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	sys := system.New()
+	if o.Sandbox {
+		root := o.Root
+		if root == "" {
+			root = "./sandbox"
+		}
+		sys = system.NewSandbox(root, o.Log)
+		o.log("sandbox: writing under %s, host mutations skipped", root)
+	}
 	cfg, err := config.LoadOrDefault(o.ConfigPath)
 	if err != nil {
 		return nil, err
@@ -71,13 +81,16 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 			continue
 		}
 		if _, ok := core.Installed(ctx, sys); !ok {
-			if !o.confirm(fmt.Sprintf("install %s?", core.Name())) {
+			if sys.DryRun {
+				o.log("would install %s (skipped in sandbox)", core.Name())
+			} else if !o.confirm(fmt.Sprintf("install %s?", core.Name())) {
 				o.log("skipping %s (declined)", core.Name())
 				continue
-			}
-			o.log("installing %s…", core.Name())
-			if err := core.Install(ctx, sys); err != nil {
-				return nil, fmt.Errorf("install %s: %w", core.Name(), err)
+			} else {
+				o.log("installing %s…", core.Name())
+				if err := core.Install(ctx, sys); err != nil {
+					return nil, fmt.Errorf("install %s: %w", core.Name(), err)
+				}
 			}
 		}
 		res, err := core.Build(plan)
@@ -97,10 +110,10 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	if cfg.Subscription.Enabled {
 		token := st.EnsureSubToken()
-		if err := system.GenSelfSigned(cfg.Subscription.FrontSNI, sub.CertPath, sub.KeyPath); err != nil {
+		if err := sys.GenSelfSigned(cfg.Subscription.FrontSNI, sub.CertPath, sub.KeyPath); err != nil {
 			return nil, err
 		}
-		if err := sub.WriteBundle(links.Subscription(endpoints)); err != nil {
+		if err := sub.WriteBundle(sys, links.Subscription(endpoints)); err != nil {
 			return nil, err
 		}
 		ngCfg.Sub = &nginx.Subscription{
@@ -135,6 +148,10 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 }
 
 func ensureNginx(ctx context.Context, sys *system.Env, o Options) error {
+	if sys.DryRun {
+		o.log("would ensure nginx + libnginx-mod-stream")
+		return nil
+	}
 	if sys.Which("nginx") {
 		return sys.AptInstall(ctx, "libnginx-mod-stream")
 	}
@@ -152,7 +169,7 @@ func ensureNginx(ctx context.Context, sys *system.Env, o Options) error {
 }
 
 func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options) error {
-	if err := system.WriteFile(nginx.ConfPath, c.Render()); err != nil {
+	if err := sys.WriteString(nginx.ConfPath, c.Render(), 0o644); err != nil {
 		return err
 	}
 	if out, err := sys.Run(ctx, "nginx", "-t"); err != nil {

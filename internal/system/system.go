@@ -13,16 +13,38 @@ import (
 	"time"
 )
 
+// Env is the dependency-injected host boundary. Root prefixes every filesystem
+// path so a sandbox can redirect writes; DryRun logs mutating commands instead
+// of executing them so testing never touches the real system.
 type Env struct {
-	HTTP *http.Client
+	HTTP   *http.Client
+	Root   string               // path prefix; "" means the real filesystem
+	DryRun bool                 // log+skip external commands instead of running
+	Logf   func(string, ...any) // sink for skipped actions
 }
 
 func New() *Env {
 	return &Env{HTTP: &http.Client{Timeout: 120 * time.Second}}
 }
 
-// Run executes a command and returns trimmed stdout; stderr is folded into the error.
+// NewSandbox returns an Env that writes under root and skips host mutations.
+func NewSandbox(root string, log func(string, ...any)) *Env {
+	return &Env{HTTP: &http.Client{Timeout: 120 * time.Second}, Root: root, DryRun: true, Logf: log}
+}
+
+func (e *Env) logf(format string, a ...any) {
+	if e.Logf != nil {
+		e.Logf(format, a...)
+	}
+}
+
+// Run executes a command and returns trimmed stdout; stderr is folded into the
+// error. In DryRun mode it logs and skips, returning empty success.
 func (e *Env) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if e.DryRun {
+		e.logf("[dry] %s %s", name, strings.Join(args, " "))
+		return "", nil
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -49,6 +71,10 @@ func (e *Env) AptUpdate(ctx context.Context) error {
 }
 
 func (e *Env) AptInstall(ctx context.Context, pkgs ...string) error {
+	if e.DryRun {
+		e.logf("[dry] apt-get install %s", strings.Join(pkgs, " "))
+		return nil
+	}
 	args := append([]string{"install", "-y", "-qq"}, pkgs...)
 	cmd := exec.CommandContext(ctx, "apt-get", args...)
 	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")

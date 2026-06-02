@@ -54,11 +54,8 @@ func (Fptn) Install(ctx context.Context, sys *system.Env) error {
 
 func (Fptn) Build(p *Plan) (Result, error) {
 	f := p.Cfg.Cores.Fptn
-	if err := os.MkdirAll(fptnDir, 0o755); err != nil {
-		return Result{}, err
-	}
 	crt, key := fptnDir+"/server.crt", fptnDir+"/server.key"
-	if err := system.GenSelfSigned(f.SNI, crt, key); err != nil {
+	if err := p.Sys.GenSelfSigned(f.SNI, crt, key); err != nil {
 		return Result{}, err
 	}
 
@@ -76,7 +73,7 @@ func (Fptn) Build(p *Plan) (Result, error) {
 		return Result{}, err
 	}
 
-	fp, err := certMD5(crt)
+	fp, err := certMD5(p.Sys, crt)
 	if err != nil {
 		return Result{}, err
 	}
@@ -111,8 +108,8 @@ func fptnUnit(iface string, port int, sni, ip string) string {
 	return unit("FPTN VPN Server", exec)
 }
 
-func certMD5(certPath string) (string, error) {
-	b, err := os.ReadFile(certPath)
+func certMD5(sys *system.Env, certPath string) (string, error) {
+	b, err := sys.ReadFile(certPath)
 	if err != nil {
 		return "", err
 	}

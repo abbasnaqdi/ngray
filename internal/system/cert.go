@@ -8,14 +8,14 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"os"
 	"time"
 )
 
 // GenSelfSigned writes a self-signed ECDSA cert/key for cn unless cert already
-// exists. Used by the hysteria2 core and the subscription HTTPS endpoint.
-func GenSelfSigned(cn, certPath, keyPath string) error {
-	if _, err := os.Stat(certPath); err == nil {
+// exists. Honors the sandbox root. Used by the hysteria2 core and the
+// subscription HTTPS endpoint.
+func (e *Env) GenSelfSigned(cn, certPath, keyPath string) error {
+	if e.Exists(certPath) {
 		return nil
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -39,21 +39,16 @@ func GenSelfSigned(cn, certPath, keyPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := writePEM(certPath, "CERTIFICATE", der, 0o644); err != nil {
+	if err := e.WriteFile(certPath, pemBytes("CERTIFICATE", der), 0o644); err != nil {
 		return err
 	}
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
 		return err
 	}
-	return writePEM(keyPath, "EC PRIVATE KEY", keyDER, 0o600)
+	return e.WriteFile(keyPath, pemBytes("EC PRIVATE KEY", keyDER), 0o600)
 }
 
-func writePEM(path, typ string, der []byte, mode os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return pem.Encode(f, &pem.Block{Type: typ, Bytes: der})
+func pemBytes(typ string, der []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der})
 }

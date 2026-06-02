@@ -3,8 +3,6 @@ package cores
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -110,10 +108,7 @@ func (Xray) Build(p *Plan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(xrayConf), 0o755); err != nil {
-		return Result{}, err
-	}
-	return res, os.WriteFile(xrayConf, out, 0o644)
+	return res, p.Sys.WriteFile(xrayConf, out, 0o644)
 }
 
 func xhttpPath(st *state.State, cid string) string {

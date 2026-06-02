@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -24,7 +23,7 @@ func (e *Env) EnableBBR(ctx context.Context) error {
 	for k, v := range tuning {
 		fmt.Fprintf(&b, "%s = %s\n", k, v)
 	}
-	if err := os.WriteFile(sysctlFile, []byte(b.String()), 0o644); err != nil {
+	if err := e.WriteString(sysctlFile, b.String(), 0o644); err != nil {
 		return err
 	}
 	_, err := e.Run(ctx, "sysctl", "--system")
@@ -36,11 +35,11 @@ func (e *Env) EnableIPForward(ctx context.Context) error {
 	if _, err := e.Run(ctx, "sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
 		return err
 	}
-	return appendUnique("/etc/sysctl.conf", "net.ipv4.ip_forward=1")
+	return e.appendUnique("/etc/sysctl.conf", "net.ipv4.ip_forward=1")
 }
 
-func appendUnique(path, line string) error {
-	if data, err := os.ReadFile(path); err == nil {
+func (e *Env) appendUnique(path, line string) error {
+	if data, err := e.ReadFile(path); err == nil {
 		sc := bufio.NewScanner(strings.NewReader(string(data)))
 		for sc.Scan() {
 			if strings.TrimSpace(sc.Text()) == line {
@@ -48,11 +47,6 @@ func appendUnique(path, line string) error {
 			}
 		}
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintln(f, line)
-	return err
+	existing, _ := e.ReadFile(path)
+	return e.WriteFile(path, append(existing, []byte(line+"\n")...), 0o644)
 }
