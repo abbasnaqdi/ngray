@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/cdnscan"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
+	"github.com/abbasnaqdi/ng-ray/internal/dnsval"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
@@ -29,6 +31,8 @@ Usage:
   ngray client links     print share links, QR codes and the subscribe URL
   ngray sni test [host…] test SNIs for REALITY fitness and latency
   ngray scan             scan CDN edges for reachable IPs
+  ngray dns validate     find DNS resolvers usable for DNS tunneling
+  ngray dns doh [n]      benchmark public DoH resolvers
   ngray firewall apply   apply the safe, idempotent firewall ruleset
   ngray update [--self]  update cores (and optionally ngray itself)
   ngray doctor           diagnose cores, nginx, BBR, foreign panels
@@ -71,6 +75,8 @@ func run(args []string) error {
 		return cmdUpdate(args[1:])
 	case "scan":
 		return cdnscan.Run()
+	case "dns":
+		return cmdDNS(args[1:])
 	case "regen":
 		return cmdRegen()
 	case "doctor":
@@ -195,6 +201,27 @@ func cmdUpdate(args []string) error {
 		return fmt.Errorf("update must run as root")
 	}
 	return server.UpdateCores(ctx, askYesNo, log)
+}
+
+// cmdDNS runs the DNS tunneling resolver validator or the DoH benchmark.
+func cmdDNS(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: ngray dns validate [flags] | ngray dns doh [phases]")
+	}
+	switch args[0] {
+	case "validate":
+		return dnsval.Run(args[1:])
+	case "doh":
+		phases := 10
+		if len(args) > 1 {
+			if n, err := strconv.Atoi(args[1]); err == nil {
+				phases = n
+			}
+		}
+		return dnsval.DoH(phases)
+	default:
+		return fmt.Errorf("usage: ngray dns validate|doh")
+	}
 }
 
 // cmdDoctor diagnoses cores, nginx, BBR and foreign panels.
