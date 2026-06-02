@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
+	"github.com/abbasnaqdi/ng-ray/internal/firewall"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
+	"github.com/abbasnaqdi/ng-ray/internal/system"
 	"github.com/abbasnaqdi/ng-ray/internal/version"
 )
 
@@ -49,6 +51,8 @@ func run(args []string) error {
 		return cmdConfig(args[1:])
 	case "sni":
 		return cmdSNI(args[1:])
+	case "firewall":
+		return cmdFirewall(args[1:])
 	default:
 		fmt.Print(usage)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -98,6 +102,55 @@ func cmdSNI(args []string) error {
 		}
 	})
 	return nil
+}
+
+// cmdFirewall derives the public-port ruleset from config and applies it.
+func cmdFirewall(args []string) error {
+	if len(args) == 0 || args[0] != "apply" {
+		return fmt.Errorf("usage: ngray firewall apply [--yes]")
+	}
+	c, err := config.LoadOrDefault(config.Path())
+	if err != nil {
+		return err
+	}
+	rules := rulesFromConfig(c)
+
+	fmt.Println("Firewall plan (default-drop inbound):")
+	for _, line := range rules.Plan() {
+		fmt.Println("  •", line)
+	}
+	if !contains(args, "--yes") {
+		fmt.Println("\nre-run with --yes to apply")
+		return nil
+	}
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("must run as root to apply firewall")
+	}
+	if err := firewall.New(system.New()).Apply(context.Background(), rules); err != nil {
+		return err
+	}
+	fmt.Println("firewall applied")
+	return nil
+}
+
+func rulesFromConfig(c *config.Config) firewall.Rules {
+	r := firewall.Rules{TCP: []int{c.Nginx.Port}}
+	if c.Cores.Hysteria2.Enabled {
+		r.UDP = append(r.UDP, c.Cores.Hysteria2.Port)
+	}
+	if c.Cores.Fptn.Enabled {
+		r.TCP = append(r.TCP, c.Cores.Fptn.Port)
+	}
+	return r
+}
+
+func contains(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func candidatesPath() string {
