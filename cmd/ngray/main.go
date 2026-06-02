@@ -62,6 +62,8 @@ func run(args []string) error {
 		return cmdSNI(args[1:])
 	case "firewall":
 		return cmdFirewall(args[1:])
+	case "update":
+		return cmdUpdate(args[1:])
 	default:
 		fmt.Print(usage)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -158,6 +160,19 @@ func cmdClient(args []string) error {
 		return nil
 	}
 	return server.RenderClient(os.Stdout, st, qr)
+}
+
+// cmdUpdate updates cores, or ngray itself with --self.
+func cmdUpdate(args []string) error {
+	ctx := context.Background()
+	log := func(f string, a ...any) { fmt.Printf("  "+f+"\n", a...) }
+	if contains(args, "--self") {
+		return server.SelfUpdate(ctx, log)
+	}
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("update must run as root")
+	}
+	return server.UpdateCores(ctx, askYesNo, log)
 }
 
 // cmdStatus reports each core's installed version, service state and latest release.
