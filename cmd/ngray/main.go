@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/abbasnaqdi/ng-ray/internal/cdnscan"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
@@ -64,6 +65,8 @@ func run(args []string) error {
 		return cmdFirewall(args[1:])
 	case "update":
 		return cmdUpdate(args[1:])
+	case "scan":
+		return cdnscan.Run()
 	default:
 		fmt.Print(usage)
 		return fmt.Errorf("unknown command %q", args[0])
