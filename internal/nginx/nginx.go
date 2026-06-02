@@ -11,6 +11,9 @@ import (
 
 const ConfPath = "/etc/nginx/nginx.conf"
 
+// Marker identifies an nginx.conf that ngray owns and may rebuild.
+const Marker = "# managed by ng-ray"
+
 // Route maps a client SNI to a loopback backend port.
 type Route struct {
 	SNI     string
@@ -48,6 +51,7 @@ func (c Config) Render() string {
 	}
 
 	var b strings.Builder
+	b.WriteString(Marker + "\n")
 	b.WriteString(`user www-data;
 worker_processes auto;
 worker_rlimit_nofile 65535;

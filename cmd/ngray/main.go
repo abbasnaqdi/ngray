@@ -31,7 +31,12 @@ Usage:
   ngray scan             scan CDN edges for reachable IPs
   ngray firewall apply   apply the safe, idempotent firewall ruleset
   ngray update [--self]  update cores (and optionally ngray itself)
+  ngray doctor           diagnose cores, nginx, BBR, foreign panels
+  ngray clean            back up + remove ngray-owned configs, stop services
+  ngray remove           full uninstall (services, configs, firewall chain)
   ngray version          print build version
+
+Global: --sandbox [--root dir]  test locally without touching the host
 `
 
 func main() {
@@ -68,6 +73,12 @@ func run(args []string) error {
 		return cdnscan.Run()
 	case "regen":
 		return cmdRegen()
+	case "doctor":
+		return cmdDoctor()
+	case "clean":
+		return cmdManage("clean")
+	case "remove":
+		return cmdManage("remove")
 	default:
 		fmt.Print(usage)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -184,6 +195,42 @@ func cmdUpdate(args []string) error {
 		return fmt.Errorf("update must run as root")
 	}
 	return server.UpdateCores(ctx, askYesNo, log)
+}
+
+// cmdDoctor diagnoses cores, nginx, BBR and foreign panels.
+func cmdDoctor() error {
+	cfg, err := config.LoadOrDefault(config.Path())
+	if err != nil {
+		return err
+	}
+	checks := server.Doctor(context.Background(), cfg)
+	color := map[server.Status]string{server.Pass: "\033[32m", server.Warn: "\033[33m", server.Fail: "\033[31m"}
+	for _, c := range checks {
+		fmt.Printf("  %s%-5s\033[0m %-14s %s\n", color[c.Status], c.Status, c.Name, c.Detail)
+		if c.Fix != "" && c.Status != server.Pass {
+			fmt.Printf("        \033[2mfix: %s\033[0m\n", c.Fix)
+		}
+	}
+	return nil
+}
+
+// cmdManage runs clean or remove (root required).
+func cmdManage(action string) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("%s must run as root", action)
+	}
+	if !askYesNo(fmt.Sprintf("%s ngray's configs and services?", action)) {
+		return nil
+	}
+	opts := server.ManageOptions{
+		StatePath: state.Path(),
+		Confirm:   askYesNo,
+		Log:       func(f string, a ...any) { fmt.Printf("  "+f+"\n", a...) },
+	}
+	if action == "remove" {
+		return server.Remove(context.Background(), opts)
+	}
+	return server.Clean(context.Background(), opts)
 }
 
 // cmdRegen clears generated credentials/keys/ports so the next setup regenerates them.

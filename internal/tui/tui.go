@@ -34,7 +34,8 @@ var menu = []item{
 	{"5", "Status", "core versions and services", []string{"server", "status"}},
 	{"6", "Update cores", "update installed cores", []string{"update"}},
 	{"7", "Firewall", "apply the safe ruleset", []string{"firewall", "apply"}},
-	{"8", "Regenerate credentials", "clear keys and secrets", []string{"regen"}},
+	{"8", "Doctor", "diagnose cores, nginx, BBR", []string{"doctor"}},
+	{"9", "Regenerate credentials", "clear keys and secrets", []string{"regen"}},
 }
 
 var (

@@ -102,3 +102,14 @@ func (f *Firewall) applyOne(ctx context.Context, r Rules) error {
 	}
 	return nil
 }
+
+// Clear removes ngray's firewall chain on both IP families, leaving the rest of
+// INPUT intact. Used by `ngray remove`.
+func (f *Firewall) Clear(ctx context.Context) {
+	for _, bin := range []string{"iptables", "ip6tables"} {
+		f.sys.OK(ctx, bin, "-D", "INPUT", "-j", chain)
+		f.sys.OK(ctx, bin, "-F", chain)
+		f.sys.OK(ctx, bin, "-X", chain)
+	}
+	f.sys.OK(ctx, "netfilter-persistent", "save")
+}
