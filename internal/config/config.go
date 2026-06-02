@@ -109,7 +109,7 @@ func Default() *Config {
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, SNI: "rust-lang.org", Obfs: "salamander"},
 			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "rust-lang.org"},
 		},
-		Subscription: Subscription{Enabled: true, FrontSNI: "www.debian.org"},
+		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org"},
 		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "singbox_json", "subscription", "qr"}},
 	}
 }
@@ -168,5 +168,30 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid reality proto %q for sni %s", r.Proto, r.SNI)
 		}
 	}
+	if c.Subscription.Enabled {
+		for _, s := range c.RouteSNIs() {
+			if s == c.Subscription.FrontSNI {
+				return fmt.Errorf("subscription.front_sni %q collides with a core route SNI; use a dedicated SNI", s)
+			}
+		}
+	}
 	return nil
+}
+
+// RouteSNIs returns every SNI that nginx multiplexes to a TCP core backend.
+func (c *Config) RouteSNIs() []string {
+	var out []string
+	for _, r := range c.Cores.Xray.Reality {
+		out = append(out, r.SNI)
+	}
+	for _, x := range c.Cores.Xray.XHTTP {
+		out = append(out, x.SNI)
+	}
+	for _, r := range c.Cores.Shoes.Reality {
+		out = append(out, r.SNI)
+	}
+	for _, r := range c.Cores.Singbox.Reality {
+		out = append(out, r.SNI)
+	}
+	return out
 }

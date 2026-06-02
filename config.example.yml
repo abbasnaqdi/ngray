@@ -31,7 +31,7 @@ cores:
 
 subscription:
   enabled: true
-  front_sni: www.debian.org   # served on nginx:443 under a random token path
+  front_sni: www.kernel.org   # dedicated SNI (not a core route), random token path on nginx:443
 
 client:
   emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]
