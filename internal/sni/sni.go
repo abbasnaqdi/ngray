@@ -136,4 +136,4 @@ func (t *Tester) classify(ctx context.Context, host string, hsErr error) Status 
 type dialError struct{ err error }
 
 func (e *dialError) Error() string { return e.err.Error() }
-func (e *dialError) Unwrap() error  { return e.err }
+func (e *dialError) Unwrap() error { return e.err }

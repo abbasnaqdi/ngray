@@ -21,8 +21,8 @@ import (
 type Options struct {
 	ConfigPath string
 	StatePath  string
-	Confirm    func(prompt string) bool        // install permission gate
-	Log        func(format string, a ...any)   // progress output
+	Confirm    func(prompt string) bool      // install permission gate
+	Log        func(format string, a ...any) // progress output
 }
 
 func (o Options) confirm(p string) bool {

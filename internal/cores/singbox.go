@@ -52,8 +52,8 @@ func (Singbox) Build(p *Plan) (Result, error) {
 		tls := map[string]any{
 			"enabled": true, "server_name": r.SNI,
 			"reality": map[string]any{
-				"enabled":   true,
-				"handshake": map[string]any{"server": r.SNI, "server_port": 443},
+				"enabled":     true,
+				"handshake":   map[string]any{"server": r.SNI, "server_port": 443},
 				"private_key": priv, "short_id": []string{sid},
 			},
 		}

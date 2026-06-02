@@ -90,7 +90,7 @@ func (Fptn) Build(p *Plan) (Result, error) {
 func fptnToken(host string, port int, user, pass, md5fp string) (string, error) {
 	tok := map[string]any{
 		"version": 1, "service_name": "FptnServer", "username": user, "password": pass,
-		"servers": []map[string]any{{"name": "FptnServer", "host": host, "md5_fingerprint": md5fp, "port": port}},
+		"servers":               []map[string]any{{"name": "FptnServer", "host": host, "md5_fingerprint": md5fp, "port": port}},
 		"censored_zone_servers": []any{},
 	}
 	b, err := json.Marshal(tok)

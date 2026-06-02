@@ -21,7 +21,7 @@ type Route struct {
 type Subscription struct {
 	FrontSNI   string
 	Token      string
-	HTTPSPort  int    // loopback ssl listener
+	HTTPSPort  int // loopback ssl listener
 	CertPath   string
 	KeyPath    string
 	BundleFile string // static file served at /s/<token>

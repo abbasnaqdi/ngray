@@ -17,10 +17,10 @@ const shoesDir = "/etc/shoes"
 
 type Shoes struct{}
 
-func (Shoes) Name() string                   { return "shoes" }
-func (Shoes) Repo() string                   { return "cfal/shoes" }
-func (Shoes) Service() string                { return "shoes" }
-func (Shoes) Enabled(c *config.Config) bool  { return len(c.Cores.Shoes.Reality) > 0 }
+func (Shoes) Name() string                  { return "shoes" }
+func (Shoes) Repo() string                  { return "cfal/shoes" }
+func (Shoes) Service() string               { return "shoes" }
+func (Shoes) Enabled(c *config.Config) bool { return len(c.Cores.Shoes.Reality) > 0 }
 
 func (Shoes) Installed(ctx context.Context, sys *system.Env) (string, bool) {
 	v := sys.BinVersion(ctx, "shoes")

@@ -14,11 +14,11 @@ import (
 )
 
 type Result struct {
-	IP       string
-	CDN      string
-	Clean    bool
-	Latency  time.Duration
-	Status   string
+	IP      string
+	CDN     string
+	Clean   bool
+	Latency time.Duration
+	Status  string
 }
 
 type Stats struct {
