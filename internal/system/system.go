@@ -1,0 +1,79 @@
+// Package system is the dependency-injected boundary to the host: command
+// execution, package installation, downloads, services and kernel tuning.
+package system
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+type Env struct {
+	HTTP *http.Client
+}
+
+func New() *Env {
+	return &Env{HTTP: &http.Client{Timeout: 120 * time.Second}}
+}
+
+// Run executes a command and returns trimmed stdout; stderr is folded into the error.
+func (e *Env) Run(ctx context.Context, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		return out.String(), fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(errb.String()))
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
+// OK reports whether the command exits zero.
+func (e *Env) OK(ctx context.Context, name string, args ...string) bool {
+	_, err := e.Run(ctx, name, args...)
+	return err == nil
+}
+
+func (e *Env) Which(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
+}
+
+func (e *Env) AptUpdate(ctx context.Context) error {
+	_, err := e.Run(ctx, "apt-get", "update", "-qq")
+	return err
+}
+
+func (e *Env) AptInstall(ctx context.Context, pkgs ...string) error {
+	args := append([]string{"install", "-y", "-qq"}, pkgs...)
+	cmd := exec.CommandContext(ctx, "apt-get", args...)
+	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("apt install %v: %w: %s", pkgs, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// PublicIP returns the server's public IPv4, trying several echo services.
+func (e *Env) PublicIP(ctx context.Context) string {
+	for _, url := range []string{"https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := e.HTTP.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+		resp.Body.Close()
+		if ip := strings.TrimSpace(string(b)); ip != "" {
+			return ip
+		}
+	}
+	return ""
+}
