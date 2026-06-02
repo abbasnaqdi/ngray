@@ -1,0 +1,15 @@
+# Reference material (contains secrets) — never commit
+/resource/
+
+# Build artifacts
+/ngray
+/dist/
+
+# Runtime state and generated output
+proxy-state.json
+config.yml
+sub.txt
+*_clean.txt
+
+# Codegraph index
+/.codegraph/

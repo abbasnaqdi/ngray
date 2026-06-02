@@ -1,0 +1,37 @@
+server:
+  ip: auto                 # auto-detect public IP, prompt to confirm
+  enable_bbr: true
+
+nginx:
+  port: 443                # single public TCP surface; SNI-multiplexed
+
+cores:
+  xray:                    # loopback backends 11000-11999, fronted by nginx:443
+    reality:
+      - {sni: rust-lang.org, flow: vision}
+      - {sni: python.org,    flow: vision}
+    xhttp:
+      - {sni: pypi.org}
+  shoes:                   # loopback backends 12000-12999
+    reality:
+      - {sni: www.rust-lang.org, proto: vless_vision}
+      - {sni: www.debian.org,    proto: anytls}
+  singbox:                 # loopback backends 13000-13999
+    reality:
+      - {sni: www.debian.org, proto: anytls}
+  hysteria2:               # independent QUIC/UDP core (not behind nginx)
+    enabled: true
+    port: 443              # mimics HTTP/3; salamander makes it patternless UDP
+    sni: rust-lang.org
+    obfs: salamander
+  fptn:                    # independent TUN core (not behind nginx)
+    enabled: false
+    port: 2096
+    sni: rust-lang.org
+
+subscription:
+  enabled: true
+  front_sni: www.debian.org   # served on nginx:443 under a random token path
+
+client:
+  emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]
