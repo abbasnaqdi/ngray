@@ -10,10 +10,23 @@ import (
 const sysctlFile = "/etc/sysctl.d/99-ngray.conf"
 
 var tuning = map[string]string{
+	// Congestion control — BBR with fq qdisc
 	"net.core.default_qdisc":          "fq",
 	"net.ipv4.tcp_congestion_control": "bbr",
-	"net.core.rmem_max":               "16777216",
-	"net.core.wmem_max":               "16777216",
+	// Network buffers — large enough for fast QUIC and bulk transfers
+	"net.core.rmem_max":     "67108864",
+	"net.core.wmem_max":     "67108864",
+	"net.core.rmem_default": "4194304",
+	"net.core.wmem_default": "4194304",
+	// Accept queue depth — prevents drop under burst connections
+	"net.core.somaxconn":          "65535",
+	"net.core.netdev_max_backlog": "65535",
+	// TCP latency — reduce idle slow-start, enable Fast Open
+	"net.ipv4.tcp_slow_start_after_idle": "0",
+	"net.ipv4.tcp_fastopen":              "3",
+	"net.ipv4.tcp_notsent_lowat":         "16384",
+	// MTU probing — adapt to path MTU automatically
+	"net.ipv4.tcp_mtu_probing": "1",
 }
 
 // EnableBBR persists fq+bbr and network buffer tuning, then reloads sysctl.

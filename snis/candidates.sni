@@ -1,7 +1,16 @@
 # SNI candidates for REALITY fitness testing.
 # Format: one hostname per line. Comments (#) and blank lines are ignored.
 # Test with: ngray sni test   /   ngray sni discover
+#
 # Good REALITY SNI: TLS1.3 + h2 ALPN + X25519 + non-redirect + IP near VPS.
+#
+# Protocol-specific notes:
+#   REALITY+Vision  — any OK SNI; prefer IP near VPS (use `ngray sni test`)
+#   XHTTP           — prefer Cloudflare/Fastly CDN (no rate-limiting on chunked streams):
+#                     pypi.org, files.pythonhosted.org, jsdelivr.net, npmjs.com, jquery.com
+#                     Avoid Google (rate-limits unusual HTTP/2 patterns aggressively)
+#   AnyTLS          — any OK SNI; padding obfuscation is protocol-level, SNI choice matters less
+#   TUIC/Hysteria2  — SNI is for self-signed cert only; IP routing, not nginx; any OK SNI fine
 
 # ── Tech / developer (widely whitelisted by Iranian carriers) ──────────────
 fastly.com

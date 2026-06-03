@@ -42,9 +42,11 @@ cores:
       - {sni: www.archlinux.org}    # good EU geo ✓
       - {sni: www.debian.org}       # reliable, on all carrier lists ✓
     xhttp:
-      - {sni: pypi.org}             # XHTTP: chunked HTTP (xray-exclusive protocol)
-      - {sni: jquery.com}           # second XHTTP shape
-      - {sni: react.dev}            # third XHTTP shape
+      # XHTTP SNIs: must be Cloudflare/Fastly CDN — they don't rate-limit chunked streams.
+      # Avoid Google domains for XHTTP (Google rate-limits unusual HTTP/2 patterns).
+      - {sni: pypi.org}             # Cloudflare CDN, no rate-limiting ✓
+      - {sni: files.pythonhosted.org} # Fastly CDN, large-file friendly ✓
+      - {sni: jsdelivr.net}         # Cloudflare CDN ✓
 
   # ── shoes ─ AnyTLS + Rust VLESS + TUIC + Hysteria2 ───────────────
   # Rust TLS stack = different ClientHello fingerprint.
@@ -122,4 +124,17 @@ subscription:
   front_sni: www.kernel.org  # kept for reference; subscription now served via HTTP:80
 
 client:
-  emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]
+  # Control exactly what gets printed after setup and in `ngray client links`.
+  # Remove any item to suppress that output type.
+  #   vless        — VLESS+Vision and VLESS+XHTTP links
+  #   anytls       — AnyTLS links (shoes + sing-box)
+  #   hysteria2    — Hysteria2 links (standalone + shoes Rust)
+  #   tuic         — TUIC v5 links (shoes Rust + sing-box)
+  #   shadowtls    — ShadowTLS v3 links (sing-box)
+  #   singbox_json — full sing-box client JSON bundle
+  #   subscription — subscribe URL (http://IP/s/TOKEN)
+  #   qr           — QR code for each link and the subscribe URL
+  #   fptn         — fptn connection token (if fptn.enabled: true)
+  #   mieru        — mieru client JSON config (if mieru.enabled: true)
+  #   amneziawg    — AmneziaWG .conf file (if amneziawg.enabled: true)
+  emit: [vless, anytls, hysteria2, tuic, shadowtls, singbox_json, subscription, qr]

@@ -180,7 +180,8 @@ func cmdServer(args []string) error {
 		if err != nil {
 			return fmt.Errorf("load state: %w", err)
 		}
-		return server.RenderClient(os.Stdout, st, false)
+		cfg, _ := config.LoadOrDefault(config.Path())
+		return server.RenderClient(os.Stdout, st, cfg, false)
 	case "status":
 		return cmdStatus()
 	default:
@@ -203,7 +204,8 @@ func cmdClient(args []string) error {
 		fmt.Println(string(b))
 		return nil
 	}
-	return server.RenderClient(os.Stdout, st, qr)
+	cfg, _ := config.LoadOrDefault(config.Path())
+	return server.RenderClient(os.Stdout, st, cfg, qr)
 }
 
 // cmdUpdate updates cores, or ngray itself with --self.

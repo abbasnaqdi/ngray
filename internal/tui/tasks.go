@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
@@ -78,9 +79,20 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 	emit("")
 	emit(okStyle.Render(fmt.Sprintf("✓ %d endpoint(s)", len(d.Endpoints))))
 	for _, ep := range d.Endpoints {
+		if ep.URI() == "" {
+			continue
+		}
 		emit("")
 		emit(keyStyle.Render(ep.Tag))
 		emit("  " + ep.URI())
+	}
+	// Notes: fptn token, mieru config, AmneziaWG conf
+	for k, v := range d.Notes {
+		emit("")
+		emit(keyStyle.Render("── " + k + " ──"))
+		for _, line := range strings.Split(strings.TrimSpace(v), "\n") {
+			emit(dimStyle.Render(line))
+		}
 	}
 	if d.SubURL != "" {
 		emit("")
@@ -95,8 +107,9 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	if err != nil {
 		return err
 	}
+	cfg, _ := config.LoadOrDefault(config.Path())
 	var buf bytes.Buffer
-	if err := server.RenderClient(&buf, st, false); err != nil {
+	if err := server.RenderClient(&buf, st, cfg, false); err != nil {
 		return err
 	}
 	emitBuf(emit, &buf)

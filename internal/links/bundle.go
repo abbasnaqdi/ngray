@@ -71,6 +71,33 @@ func singboxOutbound(e Endpoint) map[string]any {
 			"obfs":     map[string]any{"type": e.Obfs, "password": e.ObfsPass},
 			"tls":      map[string]any{"enabled": true, "server_name": e.SNI, "insecure": true},
 		}
+	case "tuic":
+		return map[string]any{
+			"type": "tuic", "tag": e.Tag, "server": e.Server, "server_port": e.Port,
+			"uuid": e.UUID, "password": e.TUICPass,
+			"congestion_control": "bbr",
+			"tls": map[string]any{
+				"enabled":     true,
+				"server_name": e.SNI,
+				"insecure":    true,
+				"alpn":        []string{"h3"},
+			},
+		}
+	case "shadowtls":
+		// ShadowTLS requires two chained outbounds: outer shadowtls + inner shadowsocks.
+		// Return the shadowsocks outbound (which detours through shadowtls).
+		// A full JSON export should include both; single-outbound format uses shadowsocks as root.
+		return map[string]any{
+			"type": "shadowsocks", "tag": e.Tag, "server": "127.0.0.1", "server_port": 1,
+			"method": e.Obfs, "password": e.AuthPass,
+			"detour": e.Tag + "-stl",
+			"_shadowtls_outbound": map[string]any{
+				"type": "shadowtls", "tag": e.Tag + "-stl",
+				"server": e.Server, "server_port": e.Port,
+				"version": 3, "password": e.Password,
+				"tls": map[string]any{"enabled": true, "server_name": e.SNI},
+			},
+		}
 	}
 	return nil
 }
