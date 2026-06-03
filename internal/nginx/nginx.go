@@ -20,14 +20,10 @@ type Route struct {
 	Backend int
 }
 
-// Subscription is the HTTPS endpoint nginx serves under its own SNI.
+// Subscription is the plain-HTTP endpoint nginx serves on port 80.
+// No TLS — self-signed certs for bare IPs are rejected by all clients.
+// The 32-hex token path provides access obscurity.
 type Subscription struct {
-	FrontSNI   string
-	ServerIP   string // optional public IP to route to sub port
-	Token      string
-	HTTPSPort  int // loopback ssl listener
-	CertPath   string
-	KeyPath    string
 	BundleFile string // static file served at /s/<token>
 }
 
@@ -46,13 +42,6 @@ func (c Config) Render() string {
 	var mapEntries strings.Builder
 	for _, r := range routes {
 		fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", r.SNI, r.Backend)
-	}
-	if c.Sub != nil {
-		fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", `""`, c.Sub.HTTPSPort)
-		if c.Sub.ServerIP != "" {
-			fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", c.Sub.ServerIP, c.Sub.HTTPSPort)
-		}
-		fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", c.Sub.FrontSNI, c.Sub.HTTPSPort)
 	}
 
 	var b strings.Builder
@@ -102,21 +91,17 @@ events {
 	fmt.Fprintf(&b, "%d default_server;\n        server_name _;\n        return 444;\n    }\n", c.Sink)
 
 	if c.Sub != nil {
-		s := c.Sub
 		fmt.Fprintf(&b, `
     server {
-        listen 127.0.0.1:%d ssl;
-        server_name %s;
-        ssl_certificate %s;
-        ssl_certificate_key %s;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        location = /s/%s {
+        listen 80;
+        server_name _;
+        location ~ ^/s/ {
             default_type text/plain;
             alias %s;
         }
         location / { return 444; }
     }
-`, s.HTTPSPort, s.FrontSNI, s.CertPath, s.KeyPath, s.Token, s.BundleFile)
+`, c.Sub.BundleFile)
 	}
 	b.WriteString("}\n")
 	return b.String()

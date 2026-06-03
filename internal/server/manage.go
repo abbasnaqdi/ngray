@@ -22,7 +22,7 @@ var managedPaths = []string{
 	"/etc/sing-box/config.json",
 	"/usr/local/etc/xray/config.json",
 	"/etc/hysteria/config.yaml",
-	sub.BundleFile, sub.CertPath, sub.KeyPath,
+	sub.BundleFile,
 }
 
 type Status string

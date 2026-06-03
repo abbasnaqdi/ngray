@@ -2,12 +2,27 @@
 # ║          ng-ray toolkit  —  ready-to-run server config           ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
-# Copy to config.yml and run:  sudo ./ngray server setup
-# No manual SNI editing required — all SNIs below are real, tested,
-# carrier-whitelisted, REALITY-fit domains.
+# Copy to config.yml (or use `make package` which does this for you).
+# On a fresh server with no config.yml, `ngray server setup` auto-selects
+# the best SNIs for your VPS from snis/candidates.sni.
 #
-# To score your SNIs against your VPS location: ngray sni test
-# To discover even better SNIs near your VPS:   ngray sni discover
+# ── Core capability matrix (drives all assignments below) ─────────
+#
+#   Protocol     │ xray     │ shoes(Rust) │ sing-box │ standalone
+#   ─────────────┼──────────┼─────────────┼──────────┼───────────
+#   VLESS+Vision │ ✅ best  │ ✅ Rust fp  │ ✅ good  │ —
+#   AnyTLS       │ ❌       │ ✅ best     │ ✅ good  │ —
+#   XHTTP        │ ✅ ONLY  │ ❌          │ ⚠️ limited│ —
+#   TUIC v5      │ ❌       │ ✅ Rust fp  │ ✅ good  │ —
+#   Hysteria2    │ ❌       │ ✅ Rust fp  │ ⚠️        │ ✅ best
+#   ShadowTLS v3 │ ❌       │ ❌          │ ✅ only  │ —
+#   Salamander   │ —        │ ✅          │ —        │ ✅ best
+#
+# ── SNI assignment strategy ───────────────────────────────────────
+# nginx:443 routes exactly ONE SNI to ONE core.
+# BUT: www.rust-lang.org ≠ rust-lang.org (different nginx keys).
+# Using both variants of a domain doubles coverage with different cores.
+# Example: www.rust-lang.org → xray Vision / rust-lang.org → shoes AnyTLS
 
 server:
   ip: auto
@@ -17,106 +32,94 @@ nginx:
   port: 443
 
 cores:
-  # ── xray (loopback 11000-11999, behind nginx:443) ────────────────
-  # REALITY+Vision: best MCI bypass — full-duplex XTLS hides TLS-in-TLS.
-  # XHTTP: chunked HTTP behind real nginx — survives MTN SNI inspection.
+  # ── xray ─ VLESS+Vision + XHTTP only ─────────────────────────────
+  # xray is the reference REALITY implementation and the ONLY core with XHTTP.
+  # Assign xray to www. SNI variants (xray is the primary workhorse).
   xray:
     reality:
-      - {sni: www.rust-lang.org}    # TLS1.3 + h2 + X25519 + CDN ✓
-      - {sni: dl.google.com}        # near EU VPS, OCSP stapling ✓
-      - {sni: addons.mozilla.org}   # widely carrier-whitelisted ✓
-      - {sni: mozilla.org}          # distinct SNI, same strong properties ✓
-      - {sni: crates.io}            # Cloudflare-backed, fast ✓
+      - {sni: www.rust-lang.org}    # best all-round REALITY SNI ✓
+      - {sni: www.python.org}       # widely whitelisted ✓
+      - {sni: www.archlinux.org}    # good EU geo ✓
+      - {sni: www.debian.org}       # reliable, on all carrier lists ✓
     xhttp:
-      - {sni: www.python.org}       # HTTP shape — distinct from Vision
-      - {sni: pypi.org}             # CDN-backed, second XHTTP SNI
-      - {sni: jquery.com}           # widely cached/whitelisted CDN ✓
-      - {sni: react.dev}            # Vercel-backed, clean TLS ✓
+      - {sni: pypi.org}             # XHTTP: chunked HTTP (xray-exclusive protocol)
+      - {sni: jquery.com}           # second XHTTP shape
+      - {sni: react.dev}            # third XHTTP shape
 
-  # ── shoes (loopback 12000-12999, behind nginx:443 + independent QUIC) ──
-  # Rust TLS → different ClientHello fingerprint from xray/sing-box.
-  # AnyTLS pads records to defeat length-based DPI (proto: anytls).
-  # TUIC + Hysteria2 via shoes = Rust QUIC stack, distinct from Go binaries.
+  # ── shoes ─ AnyTLS + Rust VLESS + TUIC + Hysteria2 ───────────────
+  # Rust TLS stack = different ClientHello fingerprint.
+  # shoes is the best AnyTLS implementation. Assign non-www SNIs.
+  # Using non-www of the same domains gives two routes per domain:
+  #   www.rust-lang.org → xray    /    rust-lang.org → shoes
   shoes:
     reality:
-      - {sni: www.debian.org,       proto: anytls}
-      - {sni: www.archlinux.org,    proto: anytls}
-      - {sni: www.nginx.org,        proto: anytls}
-      - {sni: gradle.org,           proto: anytls}
-      - {sni: ubuntu.com,           proto: vless_vision}
-      - {sni: canonical.com,        proto: anytls}
+      - {sni: rust-lang.org,        proto: anytls}  # non-www pair of xray's SNI
+      - {sni: python.org,           proto: anytls}  # non-www pair
+      - {sni: debian.org,           proto: anytls}  # non-www pair
+      - {sni: archlinux.org,        proto: anytls}  # non-www pair
+      - {sni: www.nginx.org,        proto: vless_vision}  # Rust Vision
+      - {sni: dl.google.com,        proto: anytls}  # Google CDN: no www variant
     tuic:
       enabled: true
       port: 36712       # Rust TUIC — different stack from singbox TUIC (Go)
       sni: www.rust-lang.org
     hysteria2:
       enabled: true
-      port: 36713       # Rust Hysteria2 — different stack from standalone hy2 (Go)
+      port: 36713       # Rust Hysteria2 — complements the standalone hy2 binary
       sni: www.rust-lang.org
       obfs: salamander
 
-  # ── sing-box (loopback 13000-13999, behind nginx:443) ────────────
-  # Best client support: husi, exclave, nekobox use sing-box natively.
+  # ── sing-box ─ AnyTLS + Vision + TUIC + ShadowTLS ────────────────
+  # Best client support (husi, exclave, nekobox use sing-box natively).
+  # ShadowTLS v3 is sing-box-exclusive: mimics real TLS to a live site.
+  # Assign yet another set of SNIs for maximum coverage.
   singbox:
     reality:
-      - {sni: docs.python.org,      proto: anytls}
+      - {sni: docs.python.org,      proto: anytls}  # subdomain of python.org
       - {sni: pkg.go.dev,           proto: anytls}
-      - {sni: kotlinlang.org,       proto: vless_vision}
+      - {sni: kotlinlang.org,       proto: anytls}
+      - {sni: gradle.org,           proto: vless_vision}
       - {sni: nodejs.org,           proto: anytls}
-      - {sni: rubygems.org,         proto: anytls}
-      - {sni: jetbrains.com,        proto: vless_vision}
-
-    # TUIC v5: QUIC+BBR, h3 ALPN. Different stack from hysteria2.
-    # tuic:// URI supported by nekobox, husi, exclave, v2rayN (recent).
+      - {sni: mozilla.org,          proto: vless_vision}
     tuic:
       enabled: true
-      port: 36711
+      port: 36711       # Go TUIC (sing-box)
       sni: www.rust-lang.org
-
-    # ShadowTLS v3: real TLS handshake to SNI wraps inner Shadowsocks.
-    # Indistinguishable from HTTPS to DPI. ss:// + shadow-tls plugin.
     shadowtls:
       enabled: true
-      port: 2443
+      port: 2443        # ShadowTLS v3 (sing-box only) — mimics real TLS
       sni: www.rust-lang.org
 
-  # ── hysteria2 (independent QUIC/UDP, NOT behind nginx) ───────────
-  # Salamander turns QUIC into patternless random UDP — survives packet loss.
-  # alt_ports: clients rotate freely; firewall REDIRECT maps all → port 443.
+  # ── hysteria2 ─ standalone binary (reference implementation) ──────
+  # The standalone hysteria2 binary has the best Salamander obfuscation
+  # and the most precise brutal CC. shoes hy2 is the Rust backup (port 36713).
+  # alt_ports: same credentials; firewall REDIRECT maps all → port 443.
   hysteria2:
     enabled: true
-    port: 443
+    port: 443           # UDP 443: looks like HTTP/3
     alt_ports: [8443, 2087, 2096]
     sni: www.rust-lang.org
     obfs: salamander
 
-  # ── fptn (full-tunnel TUN VPN — disabled unless explicitly needed) ──
+  # ── independent cores (disabled by default) ───────────────────────
   fptn:
     enabled: false
     port: 2096
     sni: www.rust-lang.org
     user: ngray
 
-  # ── mieru (multiplexed tunnel, no protocol fingerprint) ───────────
-  # Resistant to ML-based detection used in China / Russia.
-  # Client: NekoBox or Exclave imports the JSON config printed after setup.
   mieru:
     enabled: false
     port: 14000
     user: ngray
 
-  # ── amneziawg (obfuscated WireGuard) ─────────────────────────────
-  # Adds random junk headers to every WG packet — undetectable to DPI.
-  # Standard in Russia. Client: AmneziaVPN app imports the .conf printed after setup.
   amneziawg:
     enabled: false
     port: 51820
 
 subscription:
   enabled: true
-  front_sni: www.kernel.org    # subscribe URL: https://<server-IP>/s/<token>
-  # Cert is self-signed with IP SAN → validates cleanly without --insecure.
-  # Token is generated once and never changes unless you run `ngray regen`.
+  front_sni: www.kernel.org  # kept for reference; subscription now served via HTTP:80
 
 client:
   emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]

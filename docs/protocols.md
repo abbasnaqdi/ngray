@@ -1,33 +1,79 @@
-# Protocols and cores
+# Protocols and cores — capability matrix
 
-| Protocol / core | Transport | Why it's here | Crosses MCI | Crosses MTN |
-|---|---|---|---|---|
-| REALITY (xray / sing-box / shoes) | TCP/TLS 1.3 | Real ClientHello to a whitelisted site; no cert/domain. The one thing that reliably crosses both. | ✓ | ✓ |
-| XHTTP (xray, also sing-box) | chunked HTTP up/down | Real nginx on 443 with xray behind it → authentic server fingerprint; split up/down streams; works even over TLS 1.2. | ✓ | partial |
-| VLESS + Vision | TCP/TLS | Low-overhead REALITY flow, broad client support. | ✓ | ✓ |
-| AnyTLS | TCP/TLS + padding | Different traffic shape (padding-based) for when Vision is fingerprinted; client support limited to sing-box/husi/exclave. | ✓ | ✓ |
-| Hysteria2 | QUIC/UDP + Salamander | Brutal congestion control + obfs beats MTN's ~50% loss; mimics HTTP/3 on UDP 443. | partial | ✓ |
-| fptn | TUN VPN (token) | Independent full-tunnel fallback, SNI-masqueraded. | partial | partial |
+## Which core implements what
 
-**shoes** (Rust) is kept first-class: empirically its REALITY/AnyTLS combinations sometimes
-connect where xray and sing-box do not.
+| Protocol       | xray       | shoes (Rust) | sing-box    | standalone |
+|----------------|------------|--------------|-------------|------------|
+| VLESS+Vision   | ✅ best    | ✅ Rust fp   | ✅ good     | —          |
+| AnyTLS         | ❌         | ✅ best      | ✅ good     | —          |
+| XHTTP          | ✅ **only**| ❌           | ⚠️ limited  | —          |
+| TUIC v5        | ❌         | ✅ Rust fp   | ✅ good     | —          |
+| Hysteria2      | ❌         | ✅ Rust fp   | ⚠️ server   | ✅ **best**|
+| ShadowTLS v3   | ❌         | ❌           | ✅ **only** | —          |
+| Salamander obfs| —          | ✅           | —           | ✅ best    |
+
+**Assignment rules derived from this matrix:**
+- XHTTP configs → xray exclusively
+- AnyTLS → prefer shoes (best Rust impl), then sing-box; not xray
+- TUIC → shoes (Rust) + sing-box; not xray
+- Hysteria2 server → standalone binary (reference); shoes Rust as secondary
+- ShadowTLS → sing-box exclusively
+
+## Bypass layer coverage
+
+| Layer                        | Protocol(s)                              |
+|------------------------------|------------------------------------------|
+| TLS disguise (REALITY)       | VLESS+Vision via xray / shoes / singbox  |
+| HTTP disguise                | XHTTP via xray                           |
+| Padding obfuscation          | AnyTLS via shoes / singbox               |
+| QUIC (loss-tolerant UDP)     | Hysteria2 standalone + shoes Rust        |
+| QUIC (standard h3 stack)     | TUIC v5 via shoes + singbox              |
+| TLS-mimic (blocks deep DPI)  | ShadowTLS v3 via singbox                 |
+| Full-tunnel VPN              | fptn                                     |
+| ML-resistant tunnel          | mieru (no fingerprint)                   |
+| Obfuscated WireGuard         | AmneziaWG (Russia-grade)                 |
+
+## SNI assignment strategy
+
+nginx:443 routes exactly one SNI to one backend.
+`www.rust-lang.org` and `rust-lang.org` are different nginx keys.
+Using both variants of a domain doubles nginx coverage:
+
+```
+www.rust-lang.org  →  xray   VLESS+Vision (port 443)
+rust-lang.org      →  shoes  AnyTLS       (port 443)
+```
+
+Both clients see `port 443` on the same server; the different SNI they send
+determines which core handles them. Effective strategy: assign www. variants to
+xray (primary workhorse), non-www variants to shoes (Rust backup).
+
+## Hysteria2 choice
+
+The standalone `hysteria` binary is the reference implementation with the most
+complete Salamander obfuscation and brutal CC. Use it as the primary Hysteria2
+server. shoes Rust Hysteria2 (`port 36713`) is a secondary with a different
+binary fingerprint — useful as a failover and for clients that try multiple
+endpoints automatically.
 
 ## REALITY SNI selection rules
 
-`ngray sni test` enforces these; only `OK` SNIs should be used for REALITY:
+`ngray sni test` enforces these; only `OK` results should be used:
 
-- **TLS 1.3** support (handshake fails otherwise).
-- **h2** advertised in ALPN, ordered before `http/1.1`.
-- **X25519** key-exchange group (ng-ray pins it and checks the handshake succeeds).
-- Domain must **not** be a redirector.
-- Bonus: target IP near the VPS, handshake encrypted after ServerHello (e.g. `dl.google.com`),
-  OCSP stapling.
+- **TLS 1.3** support
+- **h2** in ALPN, ordered before http/1.1
+- **X25519** key exchange
+- Not a redirector
+- Bonus: target IP near VPS; OCSP stapling (`dl.google.com` is excellent)
 
-Seed candidates live in `snis/candidates.sni`; `ngray sni test` classifies each as
-`OK / NO_TLS13 / NO_H2 / NO_X25519 / BLOCKED / DNS_FAIL` with median latency and jitter.
+## Subscribe URL
 
-## Sources
-- XTLS/REALITY README; Xray fallbacks-with-SNI docs
-- Xray XHTTP write-ups (habr, timharbakon)
-- sing-box AnyTLS / Hysteria2 documentation; cfal/shoes
-- net4people/bbs #528 — protocol viability in 2025
+Served via **plain HTTP on port 80** (`http://SERVER-IP/s/TOKEN`).
+
+TLS is not used because there is no way to obtain a browser-trusted certificate
+for a bare IP address without a domain. Self-signed certs cause client errors.
+Plain HTTP is standard practice among proxy subscription servers; the 32-hex
+token path provides access obscurity.
+
+If you add a `domain:` to the config in a future version, Let's Encrypt
+HTTPS will be used automatically.

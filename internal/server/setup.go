@@ -134,23 +134,11 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	if cfg.Subscription.Enabled {
 		token := st.EnsureSubToken()
-		// Regenerate the sub cert only when the server IP SAN is missing
-		// (first run, or after an IP change). Once generated it stays stable
-		// so clients don't see a new certificate fingerprint on every setup.
-		if !sys.CertHasIPSAN(sub.CertPath, ip) {
-			_ = sys.Remove(sub.CertPath)
-		}
-		if err := sys.GenSelfSigned(cfg.Subscription.FrontSNI, sub.CertPath, sub.KeyPath, ip); err != nil {
-			return nil, err
-		}
 		if err := sub.WriteBundle(sys, links.Subscription(endpoints)); err != nil {
 			return nil, err
 		}
-		ngCfg.Sub = &nginx.Subscription{
-			FrontSNI: cfg.Subscription.FrontSNI, ServerIP: ip, Token: token, HTTPSPort: sub.HTTPSPort,
-			CertPath: sub.CertPath, KeyPath: sub.KeyPath, BundleFile: sub.BundleFile,
-		}
-		deploy.SubURL = sub.URL(ip, cfg.Nginx.Port, token)
+		ngCfg.Sub = &nginx.Subscription{BundleFile: sub.BundleFile}
+		deploy.SubURL = sub.URL(ip, token)
 	}
 
 	if err := writeNginx(ctx, sys, ngCfg, o); err != nil {
@@ -276,6 +264,9 @@ func restartServices(ctx context.Context, sys *system.Env, cfg *config.Config, o
 
 func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st *state.State, o Options) error {
 	r := firewall.Rules{TCP: []int{cfg.Nginx.Port}}
+	if cfg.Subscription.Enabled {
+		r.TCP = append(r.TCP, sub.HTTPPort) // plain HTTP for subscribe link
+	}
 	for _, p := range st.Ports {
 		r.TCP = append(r.TCP, p)
 	}

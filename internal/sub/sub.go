@@ -1,5 +1,7 @@
 // Package sub holds the on-disk layout and URL of the self-hosted subscription
-// endpoint served by nginx under a dedicated front SNI on 443.
+// endpoint served by nginx on port 80 (plain HTTP).
+// Plain HTTP is intentional: TLS for IP-only servers requires a self-signed
+// cert that every client rejects. The 32-hex token provides access obscurity.
 package sub
 
 import (
@@ -10,22 +12,13 @@ import (
 
 const (
 	Dir        = "/etc/ngray"
-	HTTPSPort  = 8443 // loopback; nginx terminates TLS here for the front SNI
 	BundleFile = Dir + "/bundle"
-	CertPath   = Dir + "/sub.crt"
-	KeyPath    = Dir + "/sub.key"
+	HTTPPort   = 80 // plain HTTP — no cert, no TLS errors, works everywhere
 )
 
-// URL is the fixed subscribe link users add to their client.
-// It uses the server IP (not the front SNI) because frontSNI resolves to the
-// real domain's servers, not the user's VPS. Clients fetch this URL through
-// the proxy or directly via IP.
-func URL(serverIP string, port int, token string) string {
-	host := serverIP
-	if port != 443 {
-		host = fmt.Sprintf("%s:%d", serverIP, port)
-	}
-	return fmt.Sprintf("https://%s/s/%s", host, token)
+// URL returns the subscribe link. Uses plain HTTP so clients never see a cert error.
+func URL(serverIP, token string) string {
+	return fmt.Sprintf("http://%s/s/%s", serverIP, token)
 }
 
 // WriteBundle persists the base64 subscription content served at /s/<token>.
