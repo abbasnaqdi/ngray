@@ -65,19 +65,21 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config) error {
 		fmt.Fprintf(w, "\n%-36s %s\n", e.Tag, uri)
 	}
 
-	if emit.allows("singbox_json") {
-		if b, err := links.SingboxJSON(d.Endpoints); err == nil {
-			fmt.Fprintf(w, "\n── sing-box client JSON ──\n%s\n", b)
-		}
-	}
-
-	// Notes: fptn token, mieru config, AmneziaWG conf
+	// Notes first (fptn token, mieru config, AmneziaWG conf): these are short,
+	// importable configs and must not be buried under the large sing-box JSON
+	// dump that follows — otherwise mieru/AmneziaWG look "missing" in the list.
 	for k, v := range d.Notes {
 		nk, ok := noteKey[k]
 		if ok && !emit.allows(nk) {
 			continue
 		}
 		fmt.Fprintf(w, "\n── %s ──\n%s\n", k, v)
+	}
+
+	if emit.allows("singbox_json") {
+		if b, err := links.SingboxJSON(d.Endpoints); err == nil {
+			fmt.Fprintf(w, "\n── sing-box client JSON (or just import the sbJSON subscribe URL) ──\n%s\n", b)
+		}
 	}
 
 	if d.SubURL != "" && emit.allows("subscription") {

@@ -153,9 +153,6 @@ slack.com
 salesforce.com
 oracle.com
 zoom.us
-tradingview.com
-binance.com
-coinbase.com
 
 # ── Media / CDN-backed ───────────────────────────────────────────────────────
 wikipedia.org
@@ -192,12 +189,18 @@ ovh.com
 contabo.com
 datapacket.com
 
+#@extended
 # ═══════════════════════════════════════════════════════════════════════════
-# Extended pool (v0.4) — broadens REALITY coverage so the auto-SNI sweep has
-# many operator-whitelist candidates to choose from. All are TLS1.3 + h2 sites.
-# Deliberately excludes domains blocked inside Iran (a blocked SNI defeats the
-# camouflage). The two-phase sweep handles a list this size in well under a min;
-# paste a top-sites list here to push past 1000 candidates.
+# EXTENDED pool — everything BELOW the "#@extended" marker is a FALLBACK tier.
+# Auto-SNI fills every core from the PREFERRED tier above first (proven,
+# operator-whitelist-friendly, strong REALITY dests) and only dips into this
+# tier when the preferred tier runs out of REALITY-fit hosts. This stops the
+# domains that actually cross Iranian ISPs from being displaced by
+# lower-latency-but-unwhitelisted ones.
+#
+# All TLS1.3 + h2. Excludes domains blocked inside Iran and weak REALITY dests
+# (exchanges, paywalled news, anti-bot storefronts). The two-phase sweep handles
+# a list this size in seconds; paste a top-sites list below to exceed 1000.
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── Microsoft (extended) ──────────────────────────────────────────────────────
@@ -472,36 +475,9 @@ ietf.org
 rfc-editor.org
 iana.org
 
-# ── Finance / markets (camouflages well; usually reachable) ───────────────────
-visa.com
-mastercard.com
-paypal.com
-wise.com
-bloomberg.com
-reuters.com
-ft.com
-marketwatch.com
-investing.com
-tradingview.com
-coinmarketcap.com
-coingecko.com
-kraken.com
-kucoin.com
-bybit.com
-okx.com
-gate.io
-bitfinex.com
-
-# ── Gaming (TLS1.3 CDNs) ──────────────────────────────────────────────────────
-playstation.com
-store.playstation.com
-xbox.com
-ea.com
-ubisoft.com
-ubi.com
-gog.com
-humblebundle.com
-itch.io
+# ── Game-engine / dev tooling docs (TLS1.3 CDN, neutral REALITY dests) ────────
+# (Exchanges, finance portals, paywalled news, and storefronts were removed:
+#  they are frequently blocked or anti-bot-walled in Iran and make weak dests.)
 unity.com
 unrealengine.com
 godotengine.org

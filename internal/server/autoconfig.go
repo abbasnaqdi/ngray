@@ -23,12 +23,18 @@ func RegenerateSNIs(ctx context.Context, candidatesPath, configPath string, cfg 
 }
 
 func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any), force bool) error {
-	hosts, err := sni.LoadCandidates(candidatesPath)
+	prefHosts, extHosts, err := sni.LoadTiered(candidatesPath)
+	hosts := append(append([]string{}, prefHosts...), extHosts...)
 	if err != nil || len(hosts) == 0 {
 		log("auto-SNI: no candidates found at %s — using built-in defaults", candidatesPath)
 		return nil
 	}
-	log("auto-SNI: probing %d candidates for REALITY fitness…", len(hosts))
+	preferred := make(map[string]bool, len(prefHosts))
+	for _, h := range prefHosts {
+		preferred[h] = true
+	}
+	log("auto-SNI: probing %d candidates (%d preferred + %d extended) for REALITY fitness…",
+		len(hosts), len(prefHosts), len(extHosts))
 
 	// Sweep is a fast probe-then-measure pass at high concurrency, so the budget
 	// scales with the list: ~180s comfortably covers 1000+ candidates even on a
@@ -46,12 +52,14 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 		}
 	})
 
-	ranked := sni.Ranked(results)
+	// Tiered: exhaust preferred (whitelist-friendly) hosts before extended ones,
+	// so a lower-latency-but-unwhitelisted domain never displaces a proven one.
+	ranked := sni.RankedTiered(results, preferred)
 	if len(ranked) == 0 {
 		log("auto-SNI: no SNIs passed fitness check — keeping current config")
 		return nil
 	}
-	log("auto-SNI: %d passed, %d failed — assigning best SNIs to all cores", passed, failed)
+	log("auto-SNI: %d passed, %d failed — assigning best SNIs (preferred tier first)", passed, failed)
 
 	pop := &sniBudget{ranked: ranked}
 

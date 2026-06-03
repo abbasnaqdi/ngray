@@ -18,6 +18,23 @@ func Ranked(results []Result) []Result {
 	return fit
 }
 
+// RankedTiered ranks fit results so every host in preferred comes before any
+// host that is not, with latency ordering applied within each tier. This lets
+// auto-SNI exhaust the proven (operator-whitelist-friendly) tier before falling
+// back to the extended pool, even when an extended host has lower latency.
+func RankedTiered(results []Result, preferred map[string]bool) []Result {
+	fit := Ranked(results) // latency-sorted
+	var pref, ext []Result
+	for _, r := range fit {
+		if preferred[r.Host] {
+			pref = append(pref, r)
+		} else {
+			ext = append(ext, r)
+		}
+	}
+	return append(pref, ext...)
+}
+
 // mapHosts runs fn over hosts on a pool of workers, invoking onResult (if set)
 // as each finishes, and returns results in the original host order.
 func (t *Tester) mapHosts(ctx context.Context, hosts []string, workers int, fn func(context.Context, string) Result, onResult func(Result)) []Result {
