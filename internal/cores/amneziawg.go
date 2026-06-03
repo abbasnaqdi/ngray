@@ -104,7 +104,7 @@ func awgInstallTools(ctx context.Context, sys *system.Env) error {
 // and drive DKMS to compile it against the running kernel.
 func awgInstallKernel(ctx context.Context, sys *system.Env) error {
 	const (
-		srcURL  = "https://github.com/amnezia-vpn/amneziawg/archive/refs/heads/master.tar.gz"
+		srcURL  = "https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/heads/master.tar.gz"
 		modVer  = "ngray1"
 		dkmsDir = "/usr/src/amneziawg-" + modVer
 	)
@@ -124,6 +124,7 @@ func awgInstallKernel(ctx context.Context, sys *system.Env) error {
 	dkmsConf := `PACKAGE_NAME="amneziawg"
 PACKAGE_VERSION="` + modVer + `"
 BUILT_MODULE_NAME[0]="amneziawg"
+BUILT_MODULE_LOCATION[0]="src"
 DEST_MODULE_LOCATION[0]="/kernel/net/wireguard/"
 AUTOINSTALL="yes"
 MAKE[0]="make -C src KERNELDIR=/lib/modules/${kernelver}/build"

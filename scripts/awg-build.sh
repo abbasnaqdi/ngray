@@ -19,7 +19,7 @@ fi
 echo "== headers OK"
 
 cd /tmp
-curl -fsSL https://github.com/amnezia-vpn/amneziawg/archive/refs/heads/master.tar.gz -o awg-src.tgz
+curl -fsSL https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/heads/master.tar.gz -o awg-src.tgz
 SRC=/usr/src/amneziawg-ngray1
 rm -rf "$SRC"; mkdir -p "$SRC"
 tar -xzf awg-src.tgz --strip-components=1 -C "$SRC"
@@ -27,6 +27,7 @@ cat > "$SRC/dkms.conf" <<'EOF'
 PACKAGE_NAME="amneziawg"
 PACKAGE_VERSION="ngray1"
 BUILT_MODULE_NAME[0]="amneziawg"
+BUILT_MODULE_LOCATION[0]="src"
 DEST_MODULE_LOCATION[0]="/kernel/net/wireguard/"
 AUTOINSTALL="yes"
 MAKE[0]="make -C src KERNELDIR=/lib/modules/${kernelver}/build"
@@ -47,6 +48,9 @@ if modprobe amneziawg 2>/dev/null; then
   echo "== awg-quick@wg0: $(systemctl is-active awg-quick@wg0)"
   awg show 2>/dev/null | head -6 || true
 else
-  echo "!! module still not loadable after build"; exit 1
+  echo "!! module still not loadable after build"
+  echo "== make.log (last 40 lines) =="
+  tail -40 /var/lib/dkms/amneziawg/ngray1/build/make.log 2>/dev/null || echo "(no make.log)"
+  exit 1
 fi
 REMOTE
