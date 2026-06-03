@@ -11,12 +11,13 @@ No domain required. No manual SNI selection. No configuration knowledge required
 ---
 
 ```
-◆ ngray toolkit  v0.3.0
+◆ ngray toolkit  v0.3.1
   YOUR.SERVER.IP · nginx :443 · hy2 udp :443 · BBR on  ✓ up to date
 
   1  Server setup / repair
-  2  Client links · QR · subscribe
+  2  Client links · subscribe
   3  Test SNIs  (REALITY-fitness + latency, live)
+  r  Re-select SNIs  (re-rank the pool, rewrite config.yml)
   4  Scan CDN edges
   5  Status
   6  Update cores
@@ -31,12 +32,12 @@ No domain required. No manual SNI selection. No configuration knowledge required
 
 On a fresh Ubuntu VPS, `sudo ./ngray` runs an interactive console. Choose **Server setup**:
 
-1. Automatically tests 170 candidate SNIs against your server and picks the best ones for your VPS location.
+1. Sweeps a tiered pool of ~400 candidate SNIs for REALITY fitness — a fast two-phase scan (a cheap probe across every host, then full latency measurement only on the ones that pass) — and assigns the best from a proven, operator-whitelist-friendly **preferred** tier before ever touching the **extended** fallback tier.
 2. Installs every enabled core (`xray`, `shoes`, `sing-box`, `hysteria2`, `fptn`, and optionally `mieru`, `amneziawg`) — with your permission, one by one.
 3. Configures nginx on TCP 443 as an SNI-multiplexer routing different client SNIs to different protocol backends — all invisible on the public interface.
 4. Generates keys, credentials and short-IDs that persist across re-runs.
 5. Applies a lockout-safe firewall (SSH always survives).
-6. Prints every client link plus a QR code and a subscribe URL. Add the subscribe URL once in your client — all configs appear and auto-update.
+6. Prints every client link plus a subscribe URL. Add the subscribe URL once in your client — all configs appear and auto-update. The sing-box JSON bundle includes an **auto** (urltest) group, so the client health-checks every endpoint and routes through whichever survive your operator that day.
 
 The result is a stack of **9 different protocol shapes** across 4 cores, all on port 443, covering REALITY, XHTTP, AnyTLS, TUIC, ShadowTLS, Hysteria2, plus independent cores for Rust-based TUIC and Hysteria2 — so at least one survives each operator's DPI on any given day.
 
@@ -92,8 +93,8 @@ sudo ngray                            # TUI
 
 ```bash
 sudo ngray server setup               # provision everything
-ngray client links --qr              # print all links + QR codes
-ngray sni test rust-lang.org         # check if an SNI is REALITY-fit
+ngray client links                    # print all links + configs + sing-box JSON
+ngray sni test rust-lang.org          # check if an SNI is REALITY-fit
 ```
 
 ---
@@ -106,9 +107,9 @@ ngray sni test rust-lang.org         # check if an SNI is REALITY-fit
 | `server setup [--sandbox]` | auto-SNI → install cores → nginx → subscribe link → firewall |
 | `server status` | installed version + service state for every core |
 | `doctor` | diagnose nginx, core configs, BBR, cert expiry, foreign panels |
-| `client links [--qr]` | print all share links; --qr adds a terminal QR per link |
-| `client singbox` | print the sing-box client JSON bundle |
-| `sni test [host…]` | REALITY fitness (TLS1.3 + h2 + X25519) + latency ranking |
+| `client links` | print all share links + mieru/AmneziaWG/fptn configs + sing-box JSON |
+| `client singbox` | print the sing-box client JSON bundle (with auto-failover groups) |
+| `sni test [host…]` | REALITY fitness (TLS1.3 + h2 + X25519) + latency, two-phase sweep (scales to 1000+) |
 | `sni discover` | scan /24 near your server to find nearby REALITY-fit IPs |
 | `scan` | CDN edge-IP scanner — find IPs that survive MCI (Akamai/Cloudflare/Fastly) |
 | `dns validate` | find working DNS resolvers from this network |
@@ -135,7 +136,15 @@ Generated links import into:
 | **AmneziaVPN** | All | For AmneziaWG configs (import .conf) |
 | **mieru / nekobox** | All | For mieru configs (import JSON) |
 
-**Subscribe URL** (`http://SERVER-IP/s/TOKEN`): add once in any app, all configs appear and update automatically. Plain HTTP — no cert errors, works everywhere.
+Three subscribe URLs are produced (also printed by `client links`):
+
+| URL | Contents |
+|---|---|
+| `http://SERVER-IP/s/TOKEN` | base64 URI list, plain HTTP — no cert errors, works everywhere |
+| `https://SERVER-IP:2053/s/TOKEN` | same list over self-signed TLS (enable skip-cert-verify, or pin the printed `pinSHA256`) |
+| `https://SERVER-IP:2053/sb/TOKEN` | **sing-box JSON** with an `auto` (urltest) + `select` group — import this into husi/nekobox/exclave and pick `auto` to auto-route through whichever endpoints survive |
+
+Add a URL once in any app; all configs appear and update automatically. mieru and AmneziaWG have no share-link URI — copy their config blocks from `client links` (mieru JSON → nekobox; AmneziaWG `.conf` → AmneziaVPN).
 
 ---
 
@@ -148,6 +157,40 @@ Key facts:
 - `www.X` and `X` count as separate SNIs — use both for double coverage.
 - Cores without nginx routing (hysteria2, TUIC, ShadowTLS, fptn, mieru, AmneziaWG) have their own public ports.
 - `proxy-state.json` (0600) persists all generated keys, credentials and the subscribe token — re-running setup is idempotent.
+
+### SNI pool tiers
+
+`snis/candidates.sni` is split by a `#@extended` marker into two tiers. Auto-SNI
+assigns from the **preferred** tier (above the marker — proven CDN/dev/Linux/
+Apple/MS/Samsung/Google domains) and only falls back to the **extended** tier
+when preferred runs out of REALITY-fit hosts. Ranking is by latency *within* a
+tier, so a faster-but-unwhitelisted domain never displaces a proven one. Paste
+your own domains above the marker to prioritise them; below it to keep them as
+fallback only.
+
+**Auto-SNI runs only on a fresh install** (no `config.yml`). Rebuilding the
+binary or editing the pool does **not** re-pick SNIs on its own — run **Re-select
+SNIs** in the TUI (rewrites `config.yml` with the current tiered ranking), then
+re-run **Server setup**; or delete `config.yml` and run setup.
+
+---
+
+## If a config times out
+
+A healthy server (all services `up`) with some dead configs is almost always a
+**per-operator SNI whitelist** issue, not a server fault. REALITY only crosses
+the DPI if the SNI you send is one the operator allows — and MCI, Irancell and
+Rightel each allow a different set.
+
+- The SNI fitness test runs **on the VPS**, which can reach every SNI, so it
+  cannot see your operator's whitelist. Server-side "fit" ≠ client-usable.
+- The only reliable signal is testing from **inside** the censored network: try
+  several configs and keep the SNIs that connect, or run a TLS probe to your
+  server's `:443` with each candidate SNI from your phone/PC.
+- Import the **sbJSON** subscribe URL and use its `auto` group — it skips dead
+  endpoints for you instead of you trying each by hand.
+- UDP cores (Hysteria2, TUIC, AmneziaWG) also depend on UDP/QUIC being allowed;
+  Irancell throttles UDP/443 heavily — the Hysteria2 alt-ports help.
 
 ---
 
