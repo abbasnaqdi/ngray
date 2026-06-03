@@ -63,6 +63,27 @@ func (e Endpoint) URI() string {
 		q.Set("path", e.Path)
 		q.Set("mode", "auto")
 		return fmt.Sprintf("vless://%s@%s?%s#%s", e.UUID, host, q.Encode(), frag(e.Tag))
+	case "vless-ws-tls":
+		// Cloudflare-fronted: client connects to the domain (CF edge) on 443
+		// with real TLS; CF proxies to the origin. No insecure flag (real cert).
+		q.Set("encryption", "none")
+		q.Set("security", "tls")
+		q.Set("sni", e.SNI)
+		q.Set("fp", "chrome")
+		q.Set("type", "ws")
+		q.Set("host", e.SNI)
+		q.Set("path", e.Path)
+		return fmt.Sprintf("vless://%s@%s?%s#%s", e.UUID, host, q.Encode(), frag(e.Tag))
+	case "vless-xhttp-tls":
+		q.Set("encryption", "none")
+		q.Set("security", "tls")
+		q.Set("sni", e.SNI)
+		q.Set("fp", "chrome")
+		q.Set("type", "xhttp")
+		q.Set("host", e.SNI)
+		q.Set("path", e.Path)
+		q.Set("mode", "auto")
+		return fmt.Sprintf("vless://%s@%s?%s#%s", e.UUID, host, q.Encode(), frag(e.Tag))
 	case "anytls":
 		q.Set("security", "reality")
 		q.Set("sni", e.SNI)

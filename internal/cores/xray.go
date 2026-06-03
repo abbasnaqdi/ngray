@@ -3,6 +3,7 @@ package cores
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -24,7 +25,8 @@ func (Xray) Name() string    { return "xray" }
 func (Xray) Repo() string    { return "XTLS/Xray-core" }
 func (Xray) Service() string { return "xray" }
 func (Xray) Enabled(c *config.Config) bool {
-	return len(c.Cores.Xray.Reality) > 0 || len(c.Cores.Xray.XHTTP) > 0
+	x := c.Cores.Xray
+	return len(x.Reality) > 0 || len(x.XHTTP) > 0 || (x.CDN != nil && x.CDN.Enabled && x.CDN.Domain != "")
 }
 
 func (Xray) Installed(ctx context.Context, sys *system.Env) (string, bool) {
@@ -124,6 +126,75 @@ func (Xray) Build(p *Plan) (Result, error) {
 		})
 	}
 
+	// Cloudflare-frontable inbounds: VLESS over WS and/or XHTTP with real TLS
+	// (Origin Certificate), served behind the same nginx ssl_preread mux via
+	// distinct SNIs. The client connects to the domain (Cloudflare edge), not
+	// the server IP, so these survive a direct-IP block. Skipped if the cert is
+	// not yet installed.
+	if cdn := p.Cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
+		if fileExists(cdn.CertFile) && fileExists(cdn.KeyFile) {
+			tlsSettings := func(sni string) map[string]any {
+				return map[string]any{
+					"serverName":   sni,
+					"alpn":         []string{"h2", "http/1.1"},
+					"certificates": []map[string]any{{"certificateFile": cdn.CertFile, "keyFile": cdn.KeyFile}},
+				}
+			}
+			vlessClient := func(uid string) map[string]any {
+				return map[string]any{"clients": []map[string]any{{"id": uid}}, "decryption": "none"}
+			}
+			if cdn.WS {
+				cid := id("xray", "cdnws", cdn.Domain)
+				port, err := p.Alloc.Backend("xray", cid)
+				if err != nil {
+					return Result{}, err
+				}
+				uid, path := uuid(p.St, cid), xhttpPath(p.St, cid)
+				inbounds = append(inbounds, map[string]any{
+					"listen": "127.0.0.1", "port": port, "protocol": "vless",
+					"settings": vlessClient(uid),
+					"streamSettings": map[string]any{
+						"network": "ws", "security": "tls",
+						"tlsSettings": tlsSettings(cdn.Domain),
+						"wsSettings":  map[string]any{"path": path, "host": cdn.Domain},
+					},
+				})
+				res.Routes = append(res.Routes, nginx.Route{SNI: cdn.Domain, Backend: port})
+				res.Endpoints = append(res.Endpoints, links.Endpoint{
+					Tag: links.Tag("cf", "ws", cdn.Domain), Proto: "vless-ws-tls",
+					Server: cdn.Domain, Port: 443, SNI: cdn.Domain, UUID: uid, Path: path,
+				})
+			}
+			if cdn.XHTTP {
+				alt := cdn.XHTTPDomain()
+				cid := id("xray", "cdnxh", alt)
+				port, err := p.Alloc.Backend("xray", cid)
+				if err != nil {
+					return Result{}, err
+				}
+				uid, path := uuid(p.St, cid), xhttpPath(p.St, cid)
+				inbounds = append(inbounds, map[string]any{
+					"listen": "127.0.0.1", "port": port, "protocol": "vless",
+					"settings": vlessClient(uid),
+					"streamSettings": map[string]any{
+						"network": "xhttp", "security": "tls",
+						"tlsSettings":   tlsSettings(alt),
+						"xhttpSettings": map[string]any{"path": path, "mode": "auto", "host": alt},
+					},
+				})
+				res.Routes = append(res.Routes, nginx.Route{SNI: alt, Backend: port})
+				res.Endpoints = append(res.Endpoints, links.Endpoint{
+					Tag: links.Tag("cf", "xhttp", alt), Proto: "vless-xhttp-tls",
+					Server: alt, Port: 443, SNI: alt, UUID: uid, Path: path,
+				})
+			}
+		} else {
+			res.Notes = map[string]string{"cloudflare": fmt.Sprintf(
+				"CDN (Cloudflare) inbounds skipped: cert/key not found at %s and %s. Install the Cloudflare Origin Certificate there and re-run setup.",
+				cdn.CertFile, cdn.KeyFile)}
+		}
+	}
+
 	cfg := map[string]any{
 		"log":       map[string]any{"loglevel": "warning"},
 		"inbounds":  inbounds,
@@ -135,6 +206,8 @@ func (Xray) Build(p *Plan) (Result, error) {
 	}
 	return res, p.Sys.WriteFile(xrayConf, out, 0o644)
 }
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func xhttpPath(st *state.State, cid string) string {
 	return "/" + st.Secret(cid+"|path", func() state.Secret { return state.Secret{Password: state.RandHex(6)} }).Password

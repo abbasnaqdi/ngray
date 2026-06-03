@@ -138,10 +138,12 @@ func classify(r Report, pointsHere bool) (Verdict, []string) {
 	}
 }
 
-// resolvePublic looks up A records via public resolvers first (1.1.1.1, 8.8.8.8)
-// to bypass a hijacked/poisoned local resolver, falling back to the system one.
+// resolvePublic looks up A records via public resolvers first to bypass a
+// hijacked/poisoned local resolver, falling back to the system one. Order
+// reflects what the operator found most reliable: Cloudflare, Quad9, AdGuard
+// (Google deliberately omitted).
 func resolvePublic(ctx context.Context, domain string) []string {
-	for _, ns := range []string{"1.1.1.1:53", "8.8.8.8:53"} {
+	for _, ns := range []string{"1.1.1.1:53", "9.9.9.9:53", "94.140.14.14:53"} {
 		res := &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {

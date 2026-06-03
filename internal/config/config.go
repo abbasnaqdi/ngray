@@ -69,6 +69,35 @@ type XHTTP struct {
 type Xray struct {
 	Reality []Reality `yaml:"reality"`
 	XHTTP   []XHTTP   `yaml:"xhttp"`
+	CDN     *CDN      `yaml:"cdn,omitempty"`
+}
+
+// CDN serves Cloudflare-frontable inbounds (VLESS over WebSocket and/or XHTTP,
+// with real TLS) so the domain is a working fallback path when the direct
+// server IP is blocked. The origin terminates TLS with a Cloudflare Origin
+// Certificate (set the CF SSL/TLS mode to Full (strict)). WS is served on
+// Domain and XHTTP on AltDomain (defaults to "www."+Domain), so both share
+// port 443 through distinct SNI routes in the existing ssl_preread mux. The
+// inbounds are skipped at build time if the cert/key files are absent.
+type CDN struct {
+	Enabled   bool   `yaml:"enabled"`
+	Domain    string `yaml:"domain"`               // WS SNI, e.g. example.com
+	AltDomain string `yaml:"alt_domain,omitempty"` // XHTTP SNI; default "www."+Domain
+	WS        bool   `yaml:"ws"`
+	XHTTP     bool   `yaml:"xhttp"`
+	CertFile  string `yaml:"cert_file"`
+	KeyFile   string `yaml:"key_file"`
+}
+
+// XHTTPDomain returns the SNI used for the XHTTP inbound.
+func (c *CDN) XHTTPDomain() string {
+	if c.AltDomain != "" {
+		return c.AltDomain
+	}
+	if c.Domain != "" {
+		return "www." + c.Domain
+	}
+	return ""
 }
 
 type Shoes struct {
@@ -148,6 +177,10 @@ func Default() *Config {
 					{SNI: "www.rust-lang.org", Flow: "vision"},
 				},
 				XHTTP: []XHTTP{{SNI: "www.python.org"}},
+				CDN: &CDN{
+					Enabled: true, Domain: "example.com", WS: true, XHTTP: true,
+					CertFile: "/etc/ngray/cf-origin.crt", KeyFile: "/etc/ngray/cf-origin.key",
+				},
 			},
 			Shoes: Shoes{
 				Reality: []Reality{
@@ -228,7 +261,8 @@ func (c *Config) Validate() error {
 	}
 	// SNI values are written verbatim into the nginx config; reject chars that
 	// would break the map block or allow config injection.
-	allSNIs := append(c.RouteSNIs(), c.Subscription.FrontSNI)
+	allSNIs := append(c.RouteSNIs(), c.CDNDomains()...)
+	allSNIs = append(allSNIs, c.Subscription.FrontSNI)
 	for _, s := range allSNIs {
 		if s == "" {
 			continue
@@ -240,7 +274,7 @@ func (c *Config) Validate() error {
 
 	// Each SNI may map to only one backend under nginx ssl_preread.
 	seen := map[string]bool{}
-	for _, s := range c.RouteSNIs() {
+	for _, s := range append(c.RouteSNIs(), c.CDNDomains()...) {
 		if seen[s] {
 			return fmt.Errorf("SNI %q is used by more than one core; each REALITY SNI must be unique", s)
 		}
@@ -252,6 +286,24 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// CDNDomains returns the Cloudflare-fronted SNIs (WS + XHTTP) that nginx routes
+// to the CDN backends. Kept separate from RouteSNIs so they are uniqueness- and
+// nginx-key-checked but not REALITY-fitness-tested (they front through CF).
+func (c *Config) CDNDomains() []string {
+	cdn := c.Cores.Xray.CDN
+	if cdn == nil || !cdn.Enabled || cdn.Domain == "" {
+		return nil
+	}
+	var out []string
+	if cdn.WS {
+		out = append(out, cdn.Domain)
+	}
+	if cdn.XHTTP {
+		out = append(out, cdn.XHTTPDomain())
+	}
+	return out
 }
 
 // RouteSNIs returns every SNI that nginx multiplexes to a TCP core backend.

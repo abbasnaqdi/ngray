@@ -39,6 +39,41 @@ func TestVlessURIAndSubscription(t *testing.T) {
 	}
 }
 
+// TestCloudflareFrontedEndpoints verifies the CF-fronted WS/XHTTP endpoints
+// render real-TLS URIs (no reality, no insecure) pointed at the domain, and
+// appear as ws/xhttp sing-box outbounds.
+func TestCloudflareFrontedEndpoints(t *testing.T) {
+	ws := Endpoint{Tag: "cf-ws-example", Proto: "vless-ws-tls", Server: "example.com", Port: 443, SNI: "example.com", UUID: "uid", Path: "/abc123"}
+	u := ws.URI()
+	for _, want := range []string{"vless://uid@example.com:443", "security=tls", "type=ws", "host=example.com", "path=%2Fabc123"} {
+		if !strings.Contains(u, want) {
+			t.Errorf("ws uri %q missing %q", u, want)
+		}
+	}
+	if strings.Contains(u, "reality") || strings.Contains(u, "insecure") {
+		t.Errorf("cf ws uri must not use reality/insecure: %q", u)
+	}
+
+	xh := Endpoint{Tag: "cf-xhttp-www", Proto: "vless-xhttp-tls", Server: "www.example.com", Port: 443, SNI: "www.example.com", UUID: "uid2", Path: "/xh1"}
+	if xu := xh.URI(); !strings.Contains(xu, "type=xhttp") || !strings.Contains(xu, "mode=auto") {
+		t.Errorf("xhttp uri wrong: %q", xu)
+	}
+
+	b, err := SingboxJSON([]Endpoint{ws, xh})
+	if err != nil {
+		t.Fatalf("SingboxJSON: %v", err)
+	}
+	s := string(b)
+	for _, want := range []string{`"type": "ws"`, `"type": "xhttp"`, "example.com"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("singbox json missing %q", want)
+		}
+	}
+	if strings.Contains(s, `"reality"`) {
+		t.Errorf("cf outbounds must not contain reality: %s", s)
+	}
+}
+
 // TestSingboxJSONAutoFailover verifies the bundle gains urltest + selector
 // groups (so clients auto-route around endpoints blocked on a given network)
 // only when more than one endpoint is present, and that the shadowtls "-stl"

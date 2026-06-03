@@ -94,6 +94,34 @@ func singboxOutbounds(e Endpoint) []map[string]any {
 			},
 		}}
 
+	case "vless-ws-tls":
+		// Cloudflare-fronted: real TLS to the domain (CF edge), WS transport.
+		return []map[string]any{{
+			"type": "vless", "tag": e.Tag,
+			"server": e.Server, "server_port": e.Port,
+			"uuid": e.UUID,
+			"tls": map[string]any{
+				"enabled": true, "server_name": e.SNI,
+				"utls": map[string]any{"enabled": true, "fingerprint": "chrome"},
+			},
+			"transport": map[string]any{
+				"type": "ws", "path": e.Path,
+				"headers": map[string]any{"Host": e.SNI},
+			},
+		}}
+
+	case "vless-xhttp-tls":
+		return []map[string]any{{
+			"type": "vless", "tag": e.Tag,
+			"server": e.Server, "server_port": e.Port,
+			"uuid": e.UUID,
+			"tls": map[string]any{
+				"enabled": true, "server_name": e.SNI,
+				"utls": map[string]any{"enabled": true, "fingerprint": "chrome"},
+			},
+			"transport": map[string]any{"type": "xhttp", "path": e.Path},
+		}}
+
 	case "anytls":
 		return []map[string]any{{
 			"type": "anytls", "tag": e.Tag,

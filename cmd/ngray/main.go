@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ Usage:
   ngray sni test [host…] test SNIs for REALITY fitness and latency
   ngray sni discover     find REALITY SNIs hosted near your server
   ngray domain check [d] check if a domain is a working CF-fronted path here
+  ngray domain cert c k  install a Cloudflare Origin cert+key for CF fronting
   ngray scan             scan CDN edges for reachable IPs
   ngray dns validate     find DNS resolvers usable for DNS tunneling
   ngray dns doh [n]      benchmark public DoH resolvers
@@ -250,8 +252,11 @@ func cmdDNS(args []string) error {
 // cmdDomain checks whether a domain is a working Cloudflare-fronted path to this
 // server and prints scenario-aware advice ("be smart") before configs are made.
 func cmdDomain(args []string) error {
+	if len(args) > 0 && args[0] == "cert" {
+		return cmdDomainCert(args[1:])
+	}
 	if len(args) == 0 || args[0] != "check" {
-		return fmt.Errorf("usage: ngray domain check <domain> [--ip SERVER_IP]")
+		return fmt.Errorf("usage: ngray domain check <domain> [--ip IP] | ngray domain cert <cert.pem> <key.pem>")
 	}
 	rest := args[1:]
 	var dom string
@@ -291,6 +296,43 @@ func cmdDomain(args []string) error {
 	for _, a := range rep.Advice {
 		fmt.Printf("    • %s\n", a)
 	}
+	return nil
+}
+
+// cmdDomainCert validates a Cloudflare Origin Certificate + key pair and
+// installs them at the CDN cert paths so the WS/XHTTP TLS inbounds can serve
+// the domain (fixing CF error 525). Run as root (writes under /etc/ngray).
+func cmdDomainCert(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: ngray domain cert <cert.pem> <key.pem>")
+	}
+	if _, err := tls.LoadX509KeyPair(args[0], args[1]); err != nil {
+		return fmt.Errorf("cert/key invalid or do not match: %w", err)
+	}
+	cfg, _ := config.LoadOrDefault(config.Path())
+	cdn := cfg.Cores.Xray.CDN
+	if cdn == nil || cdn.CertFile == "" || cdn.KeyFile == "" {
+		return fmt.Errorf("no cores.xray.cdn cert paths configured")
+	}
+	crt, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+	key, err := os.ReadFile(args[1])
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(cdn.CertFile), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(cdn.CertFile, crt, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(cdn.KeyFile, key, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("installed origin cert → %s\ninstalled origin key  → %s\n", cdn.CertFile, cdn.KeyFile)
+	fmt.Println("next: set Cloudflare SSL/TLS mode to Full (strict), then run: ngray server setup")
 	return nil
 }
 
