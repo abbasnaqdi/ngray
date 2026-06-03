@@ -69,24 +69,35 @@ func singboxOutbounds(e Endpoint) []map[string]any {
 		}}
 
 	case "hysteria2":
+		hy2TLS := map[string]any{"enabled": true, "server_name": e.SNI}
+		if e.CertPEM != "" {
+			hy2TLS["certificate"] = e.CertPEM
+		} else {
+			hy2TLS["insecure"] = true
+		}
 		return []map[string]any{{
 			"type": "hysteria2", "tag": e.Tag,
 			"server": e.Server, "server_port": e.Port,
 			"password": e.AuthPass,
 			"obfs":     map[string]any{"type": e.Obfs, "password": e.ObfsPass},
-			"tls":      map[string]any{"enabled": true, "server_name": e.SNI, "insecure": true},
+			"tls":      hy2TLS,
 		}}
 
 	case "tuic":
+		tuicTLS := map[string]any{
+			"enabled": true, "server_name": e.SNI, "alpn": []string{"h3"},
+		}
+		if e.CertPEM != "" {
+			tuicTLS["certificate"] = e.CertPEM
+		} else {
+			tuicTLS["insecure"] = true
+		}
 		return []map[string]any{{
 			"type": "tuic", "tag": e.Tag,
 			"server": e.Server, "server_port": e.Port,
 			"uuid": e.UUID, "password": e.TUICPass,
 			"congestion_control": "bbr",
-			"tls": map[string]any{
-				"enabled": true, "server_name": e.SNI,
-				"insecure": true, "alpn": []string{"h3"},
-			},
+			"tls":                tuicTLS,
 		}}
 
 	case "shadowtls":

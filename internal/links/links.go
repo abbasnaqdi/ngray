@@ -14,7 +14,7 @@ import (
 // Endpoint describes one reachable proxy configuration.
 type Endpoint struct {
 	Tag    string
-	Proto  string // vless-vision | vless-xhttp | anytls | hysteria2
+	Proto  string // vless-vision | vless-xhttp | anytls | hysteria2 | tuic | shadowtls
 	Server string
 	Port   int
 
@@ -23,14 +23,20 @@ type Endpoint struct {
 	ShortID   string
 
 	UUID     string // vless
-	Password string // anytls
+	Password string // anytls / shadowtls outer password
 
-	AuthPass string // hysteria2 / tuic password
+	AuthPass string // hysteria2 / tuic auth
 	Obfs     string // hysteria2 obfs type
 	ObfsPass string
-	TUICPass string // tuic password (separate from auth UUID)
+	TUICPass string // tuic password
 
 	Path string // xhttp
+
+	// Self-signed cert fields (used instead of insecure=1/allow_insecure=1).
+	// Fingerprint is base64(SHA256(DER)) — used in URI pinSHA256 parameter.
+	// CertPEM is the raw PEM — embedded in sing-box JSON outbound.
+	Fingerprint string
+	CertPEM     string
 }
 
 // URI renders the client share link for an endpoint.
@@ -69,13 +75,21 @@ func (e Endpoint) URI() string {
 		q.Set("obfs", e.Obfs)
 		q.Set("obfs-password", e.ObfsPass)
 		q.Set("sni", e.SNI)
-		q.Set("insecure", "1")
+		if e.Fingerprint != "" {
+			q.Set("pinSHA256", e.Fingerprint)
+		} else {
+			q.Set("insecure", "1")
+		}
 		return fmt.Sprintf("hysteria2://%s@%s?%s#%s", e.AuthPass, host, q.Encode(), frag(e.Tag))
 	case "tuic":
 		q.Set("congestion_control", "bbr")
 		q.Set("alpn", "h3")
 		q.Set("sni", e.SNI)
-		q.Set("allow_insecure", "1")
+		if e.Fingerprint != "" {
+			q.Set("pinSHA256", e.Fingerprint)
+		} else {
+			q.Set("allow_insecure", "1")
+		}
 		return fmt.Sprintf("tuic://%s:%s@%s?%s#%s", e.UUID, e.TUICPass, host, q.Encode(), frag(e.Tag))
 	case "shadowtls":
 		// SIP022 Shadowsocks URI with shadow-tls plugin.

@@ -118,9 +118,11 @@ func (Shoes) Build(p *Plan) (Result, error) {
 			},
 			"tls": map[string]any{"type": "file", "cert_path": crt, "key_path": key},
 		})
+		fp, _ := p.Sys.CertFingerprint(crt)
 		res.Endpoints = append(res.Endpoints, links.Endpoint{
 			Tag: links.Tag("shoes", "tuic", t.SNI), Proto: "tuic",
 			Server: p.IP, Port: t.Port, SNI: t.SNI, UUID: uid, TUICPass: pw,
+			Fingerprint: fp, CertPEM: p.Sys.CertPEM(crt),
 		})
 	}
 
@@ -145,9 +147,11 @@ func (Shoes) Build(p *Plan) (Result, error) {
 			},
 			"tls": map[string]any{"type": "file", "cert_path": crt, "key_path": key},
 		})
+		fp2, _ := p.Sys.CertFingerprint(crt)
 		res.Endpoints = append(res.Endpoints, links.Endpoint{
 			Tag: links.Tag("shoes", "hy2", h.SNI), Proto: "hysteria2",
 			Server: p.IP, Port: h.Port, SNI: h.SNI, Obfs: h.Obfs, ObfsPass: obfs, AuthPass: auth,
+			Fingerprint: fp2, CertPEM: p.Sys.CertPEM(crt),
 		})
 	}
 

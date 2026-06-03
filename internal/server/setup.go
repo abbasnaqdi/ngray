@@ -175,6 +175,9 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		deploy.SubURL = sub.HTTPSURL(ip, token, httpsPort)
 		deploy.SubHTTPURL = sub.URL(ip, token)
 		deploy.SubSingboxURL = sub.SingboxURL(ip, token, httpsPort)
+		if fp, err := sys.CertFingerprint(sub.CertFile); err == nil {
+			deploy.SubCertFingerprint = fp
+		}
 		o.log("subscription: HTTPS port %d, HTTP port %d", httpsPort, sub.HTTPPort)
 	}
 

@@ -112,9 +112,11 @@ func (Singbox) Build(p *Plan) (Result, error) {
 				"certificate_path": singboxTUICCrt, "key_path": singboxTUICKey,
 			},
 		})
+		fp, _ := p.Sys.CertFingerprint(singboxTUICCrt)
 		res.Endpoints = append(res.Endpoints, links.Endpoint{
 			Tag: links.Tag("sb", "tuic", t.SNI), Proto: "tuic",
 			Server: p.IP, Port: t.Port, SNI: t.SNI, UUID: uid, TUICPass: pw,
+			Fingerprint: fp, CertPEM: p.Sys.CertPEM(singboxTUICCrt),
 		})
 	}
 

@@ -81,7 +81,9 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 		emit("")
 		emit(keyStyle.Render("subscribe"))
 		emit("  HTTPS  " + okStyle.Render(d.SubURL))
-		emit(dimStyle.Render("          (skip-cert-verify / insecure in client)"))
+		if d.SubCertFingerprint != "" {
+			emit("  cert   " + dimStyle.Render("SHA256:"+d.SubCertFingerprint))
+		}
 		if d.SubSingboxURL != "" {
 			emit("  sbJSON " + okStyle.Render(d.SubSingboxURL))
 		}

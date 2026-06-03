@@ -83,7 +83,9 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config) error {
 	if d.SubURL != "" && emit.allows("subscription") {
 		fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
 		fmt.Fprintf(w, "  HTTPS  %s\n", d.SubURL)
-		fmt.Fprintf(w, "         (enable skip-cert-verify / insecure in your client)\n")
+		if d.SubCertFingerprint != "" {
+			fmt.Fprintf(w, "  cert   SHA256:%s\n", d.SubCertFingerprint)
+		}
 		if d.SubSingboxURL != "" {
 			fmt.Fprintf(w, "  sbJSON %s\n", d.SubSingboxURL)
 		}

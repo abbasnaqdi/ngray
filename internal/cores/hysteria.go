@@ -90,16 +90,21 @@ func (Hysteria) Build(p *Plan) (Result, error) {
 	if err := p.Sys.WriteFile(hyDir+"/config.yaml", out, 0o644); err != nil {
 		return Result{}, err
 	}
-	eps := []links.Endpoint{{
-		Tag: links.Tag("hy2", "", h.SNI), Proto: "hysteria2",
-		Server: p.IP, Port: h.Port, SNI: h.SNI, Obfs: h.Obfs, ObfsPass: obfs, AuthPass: auth,
-	}}
-	// Alt ports share the same server config; the firewall redirects them to h.Port.
+	fp, _ := p.Sys.CertFingerprint(hyDir + "/server.crt")
+	certPEM := p.Sys.CertPEM(hyDir + "/server.crt")
+
+	base := links.Endpoint{
+		Proto: "hysteria2", Server: p.IP, SNI: h.SNI,
+		Obfs: h.Obfs, ObfsPass: obfs, AuthPass: auth,
+		Fingerprint: fp, CertPEM: certPEM,
+	}
+	eps := []links.Endpoint{func() links.Endpoint { e := base; e.Tag = links.Tag("hy2", "", h.SNI); e.Port = h.Port; return e }()}
+	// Alt ports share the same credentials; firewall redirects them to h.Port.
 	for _, ap := range h.AltPorts {
-		eps = append(eps, links.Endpoint{
-			Tag: fmt.Sprintf("hy2-alt%d", ap), Proto: "hysteria2",
-			Server: p.IP, Port: ap, SNI: h.SNI, Obfs: h.Obfs, ObfsPass: obfs, AuthPass: auth,
-		})
+		e := base
+		e.Tag = fmt.Sprintf("hy2-alt%d", ap)
+		e.Port = ap
+		eps = append(eps, e)
 	}
 	return Result{Endpoints: eps}, nil
 }

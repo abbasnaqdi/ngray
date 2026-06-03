@@ -4,9 +4,12 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"time"
@@ -61,8 +64,36 @@ func (e *Env) GenSelfSigned(cn, certPath, keyPath string, extraSANs ...string) e
 	return e.WriteFile(keyPath, pemBytes("EC PRIVATE KEY", keyDER), 0o600)
 }
 
+// CertFingerprint returns the base64(SHA256(DER)) fingerprint of the PEM cert
+// at certPath. Compatible with the pinSHA256 parameter in hysteria2/TUIC URIs.
+func (e *Env) CertFingerprint(certPath string) (string, error) {
+	b, err := e.ReadFile(certPath)
+	if err != nil {
+		return "", err
+	}
+	blk, _ := pem.Decode(b)
+	if blk == nil {
+		return "", fmt.Errorf("no PEM block in %s", certPath)
+	}
+	cert, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(cert.Raw)
+	return base64.StdEncoding.EncodeToString(sum[:]), nil
+}
+
 func pemBytes(typ string, der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der})
+}
+
+// CertPEM returns the PEM certificate at certPath as a string, or "" on error.
+func (e *Env) CertPEM(certPath string) string {
+	b, err := e.ReadFile(certPath)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // CertHasIPSAN reports whether the PEM cert at certPath includes ip as a SAN.

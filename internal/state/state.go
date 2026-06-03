@@ -44,9 +44,10 @@ type State struct {
 type Deploy struct {
 	Endpoints     []links.Endpoint  `json:"endpoints,omitempty"`
 	Notes         map[string]string `json:"notes,omitempty"`
-	SubURL        string            `json:"sub_url,omitempty"`         // HTTPS primary (port 8443)
-	SubHTTPURL    string            `json:"sub_http_url,omitempty"`    // HTTP fallback (port 80)
-	SubSingboxURL string            `json:"sub_singbox_url,omitempty"` // sing-box JSON (HTTPS)
+	SubURL             string `json:"sub_url,omitempty"`              // HTTPS primary
+	SubHTTPURL         string `json:"sub_http_url,omitempty"`         // HTTP fallback
+	SubSingboxURL      string `json:"sub_singbox_url,omitempty"`      // sing-box JSON (HTTPS)
+	SubCertFingerprint string `json:"sub_cert_fingerprint,omitempty"` // SHA256 of sub TLS cert
 }
 
 func Path() string {
