@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -177,6 +178,18 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid reality proto %q for sni %s", r.Proto, r.SNI)
 		}
 	}
+	// SNI values are written verbatim into the nginx config; reject chars that
+	// would break the map block or allow config injection.
+	allSNIs := append(c.RouteSNIs(), c.Subscription.FrontSNI)
+	for _, s := range allSNIs {
+		if s == "" {
+			continue
+		}
+		if strings.ContainsAny(s, " \t\n\r;{}\"'\\") {
+			return fmt.Errorf("SNI %q contains characters not valid in an nginx map key", s)
+		}
+	}
+
 	// Each SNI may map to only one backend under nginx ssl_preread.
 	seen := map[string]bool{}
 	for _, s := range c.RouteSNIs() {

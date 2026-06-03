@@ -1251,7 +1251,7 @@ func writeLines(path string, lines []string) {
 	if len(lines) > 0 {
 		content += "\n"
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		logMsg(fmt.Sprintf("failed to write %s: %v", path, err), colBRed)
 	}
 }

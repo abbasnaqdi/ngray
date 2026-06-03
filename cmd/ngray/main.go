@@ -176,7 +176,10 @@ func cmdServer(args []string) error {
 			return err
 		}
 		fmt.Printf("\ndone — %d endpoint(s)\n", len(d.Endpoints))
-		st, _ := state.Load(state.Path())
+		st, err := state.Load(state.Path())
+		if err != nil {
+			return fmt.Errorf("load state: %w", err)
+		}
 		return server.RenderClient(os.Stdout, st, false)
 	case "status":
 		return cmdStatus()

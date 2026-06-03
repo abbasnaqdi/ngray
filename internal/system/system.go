@@ -54,6 +54,22 @@ func (e *Env) Run(ctx context.Context, name string, args ...string) (string, err
 	return strings.TrimSpace(out.String()), nil
 }
 
+// RunStdin executes a command with the given string piped to its stdin.
+func (e *Env) RunStdin(ctx context.Context, stdin string, name string, args ...string) error {
+	if e.DryRun {
+		e.logf("[dry] %s %s (with stdin)", name, strings.Join(args, " "))
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	var errb bytes.Buffer
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(errb.String()))
+	}
+	return nil
+}
+
 // OK reports whether the command exits zero.
 func (e *Env) OK(ctx context.Context, name string, args ...string) bool {
 	_, err := e.Run(ctx, name, args...)

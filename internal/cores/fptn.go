@@ -62,8 +62,9 @@ func (Fptn) Build(p *Plan) (Result, error) {
 	pass := p.St.Secret("fptn|pw", func() state.Secret { return state.Secret{Password: state.NewPassword(16)} }).Password
 	ctx := context.Background()
 	_, _ = p.Sys.Run(ctx, "fptn-passwd", "--del-user", user, "--userfile", fptnDir+"/users.list")
-	if _, err := p.Sys.Run(ctx, "bash", "-c",
-		fmt.Sprintf("echo %q | fptn-passwd --add-user %s --bandwidth 100 --userfile %s/users.list", pass, user, fptnDir)); err != nil {
+	// fptn-passwd reads the password from stdin; write it directly without shell.
+	if err := p.Sys.RunStdin(ctx, pass+"\n", "fptn-passwd",
+		"--add-user", user, "--bandwidth", "100", "--userfile", fptnDir+"/users.list"); err != nil {
 		return Result{}, err
 	}
 

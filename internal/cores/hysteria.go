@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -11,6 +12,8 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 	"gopkg.in/yaml.v3"
 )
+
+const hyBin = "/usr/local/bin/hysteria"
 
 const hyDir = "/etc/hysteria"
 
@@ -26,11 +29,35 @@ func (Hysteria) Installed(ctx context.Context, sys *system.Env) (string, bool) {
 	return detect(ctx, sys, "hysteria")
 }
 
+// Install downloads the hysteria2 binary directly from GitHub releases,
+// bypassing get.hy2.sh which makes rate-limited api.github.com calls.
 func (Hysteria) Install(ctx context.Context, sys *system.Env) error {
-	if _, err := sys.Run(ctx, "bash", "-c", "curl -fsSL https://get.hy2.sh/ | bash"); err != nil {
+	url, err := sys.AssetURL(ctx, "apernet/hysteria", `hysteria-linux-amd64$`)
+	if err != nil {
 		return err
 	}
-	return os.MkdirAll(hyDir, 0o755)
+	tmp := filepath.Join(os.TempDir(), "hysteria-linux-amd64")
+	if err := sys.Download(ctx, url, tmp); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		return err
+	}
+	// Atomic rename avoids ETXTBSY when replacing a running binary.
+	if err := os.Rename(tmp, hyBin); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(hyDir, 0o755); err != nil {
+		return err
+	}
+	if err := sys.WriteUnit("hysteria-server.service",
+		unit("hysteria2", hyBin+" server -c "+hyDir+"/config.yaml")); err != nil {
+		return err
+	}
+	if err := sys.DaemonReload(ctx); err != nil {
+		return err
+	}
+	return sys.EnableNow(ctx, "hysteria-server")
 }
 
 func (Hysteria) Build(p *Plan) (Result, error) {

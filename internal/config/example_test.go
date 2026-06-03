@@ -1,10 +1,10 @@
 package config_test
 
 import (
+	"github.com/abbasnaqdi/ng-ray/internal/config"
+	"gopkg.in/yaml.v3"
 	"os"
 	"testing"
-	"gopkg.in/yaml.v3"
-	"github.com/abbasnaqdi/ng-ray/internal/config"
 )
 
 func TestExampleConfig(t *testing.T) {
