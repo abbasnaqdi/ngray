@@ -1,72 +1,93 @@
-# ng-ray toolkit — server configuration.
-# Copy to config.yml next to the binary and edit.
-# Every REALITY `sni` must be a real TLS1.3 + h2 site and must be UNIQUE
-# across all cores (nginx routes one SNI to one backend).
-# Validate candidates first: ngray sni test / ngray sni discover
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║               ng-ray toolkit  —  server configuration            ║
+# ╚══════════════════════════════════════════════════════════════════╝
 #
-# Protocol strategy — each core+shape covers a different bypass mechanism:
-#   xray       → REALITY+Vision (best MCI)  +  XHTTP (best MTN/censored)
-#   shoes      → AnyTLS (padding obfuscation) + Vision (Rust TLS fingerprint)
-#   sing-box   → AnyTLS + Vision + TUIC (QUIC, different from hy2)
-#   hysteria2  → Salamander QUIC/UDP, handles 50% packet loss (MTN/Rightel)
-#   fptn       → full-tunnel TUN VPN (token-based fallback)
+# Copy to config.yml next to the binary, edit SNIs for your VPS, then:
+#   ngray sni test          — verify SNIs are REALITY-fit
+#   ngray server setup      — provision everything
+#
+# ── SNI uniqueness rule ───────────────────────────────────────────
+# Every SNI under xray / shoes / singbox reality/xhttp MUST be globally
+# unique. nginx ssl_preread routes exactly ONE SNI to ONE backend.
+# hysteria2 / fptn / tuic are independent (own ports) — SNI reuse OK.
+# subscription.front_sni must not appear in any core route.
+#
+# ── Per-operator bypass strategy ──────────────────────────────────
+# MCI (Hamrah-e-Aval)   IP-block → REALITY Vision survives
+# Irancell / MTN        SNI whitelist + 50 % loss →
+#                         Vision / XHTTP for TCP (whitelisted SNI)
+#                         Hysteria2 Salamander for UDP (loss-tolerant)
+# Rightel               same as MTN
+# All                   more shapes = at least one survives per client
 
 server:
-  ip: auto
-  enable_bbr: true
+  ip: auto           # auto-detect (or set explicitly: "1.2.3.4")
+  enable_bbr: true   # BBR + fq — critical for lossy MTN/Rightel links
 
 nginx:
-  port: 443
+  port: 443          # only public TCP surface; all TCP cores share via SNI mux
 
 cores:
-  # ── xray ─ loopback backends 11000-11999, behind nginx:443 ───────────────
+  # ── xray  (loopback 11000-11999, behind nginx:443) ───────────────
+  # Best REALITY and XHTTP implementation. Vision = XTLS full-duplex
+  # (hides TLS-in-TLS fingerprint). XHTTP = chunked HTTP over real nginx.
   xray:
     reality:
-      - {sni: www.rust-lang.org}   # TLS1.3 h2 X25519 ✓ VLESS+Vision
-      - {sni: dl.google.com}       # near-server IPs, OCSP stapling ✓
+      - {sni: www.rust-lang.org}   # TLS1.3 + h2 + X25519 + CDN ✓
+      - {sni: dl.google.com}       # near EU/NL VPS, OCSP stapling ✓
     xhttp:
-      - {sni: www.python.org}      # chunked HTTP — different shape for MTN
-      - {sni: pypi.org}
+      - {sni: www.python.org}      # on most carrier whitelists ✓
+      - {sni: pypi.org}            # alternate XHTTP shape; CDN-backed ✓
 
-  # ── shoes ─ loopback backends 12000-12999, behind nginx:443 ──────────────
-  # Rust TLS stack — sometimes connects when xray/sing-box can't
+  # ── shoes  (loopback 12000-12999, behind nginx:443) ──────────────
+  # Rust TLS stack → different ClientHello fingerprint from xray/sing-box.
+  # AnyTLS adds random-length padding to every TLS record (defeats length DPI).
   shoes:
     reality:
-      - {sni: www.debian.org,    proto: anytls}       # TCP padding obfuscation
-      - {sni: www.archlinux.org, proto: anytls}       # alternate AnyTLS shape
+      - {sni: www.debian.org,    proto: anytls}       # TCP padding + REALITY
+      - {sni: www.archlinux.org, proto: anytls}       # alternate AnyTLS SNI
       - {sni: www.nginx.org,     proto: vless_vision} # Vision via Rust TLS
 
-  # ── sing-box ─ loopback backends 13000-13999, behind nginx:443 ───────────
-  # Widest client support (husi, exclave, nekobox natively use sing-box)
+  # ── sing-box  (loopback 13000-13999, behind nginx:443 + TUIC UDP) ─
+  # Widest client support: husi / exclave / nekobox use sing-box natively.
   singbox:
     reality:
-      - {sni: docs.python.org, proto: anytls}
-      - {sni: kotlinlang.org,  proto: vless_vision}
+      - {sni: docs.python.org, proto: anytls}       # AnyTLS (husi/exclave)
+      - {sni: pkg.go.dev,      proto: anytls}        # alternate AnyTLS SNI
+      - {sni: kotlinlang.org,  proto: vless_vision}  # Vision via sing-box
+    # TUIC v5 — QUIC BBR, h3 ALPN, different stack from hysteria2.
+    # tuic:// URI works in nekobox / husi / exclave / v2rayN (recent).
+    # Independent UDP port — NOT behind nginx.
     tuic:
       enabled: true
-      port: 36711      # independent UDP port — QUIC v5, bbr, different from hy2
-      sni: www.rust-lang.org
+      port: 36711            # public UDP; firewall opened automatically
+      sni: www.rust-lang.org # SNI for self-signed cert (any valid domain)
 
-  # ── hysteria2 ─ independent QUIC/UDP core (not behind nginx) ─────────────
-  # Salamander obfs turns QUIC into patternless UDP; brutal CC handles packet loss.
-  # alt_ports: same credentials, firewall redirects them → main port (port hopping).
+  # ── hysteria2  (independent QUIC/UDP, NOT behind nginx) ──────────
+  # Salamander obfs turns QUIC into patternless random UDP bytes.
+  # Brutal CC recovers throughput through 50 % packet loss (MTN/Rightel).
+  # alt_ports: same credentials; iptables REDIRECT maps extras → main port.
+  # Clients round-robin ports when one is rate-limited.
   hysteria2:
     enabled: true
-    port: 443          # UDP 443 — mimics HTTP/3
+    port: 443           # UDP 443 — looks like HTTP/3 to shallow DPI
     alt_ports: [8443, 2087, 2096]
     sni: www.rust-lang.org
-    obfs: salamander
+    obfs: salamander    # only production obfs type in hy2
 
-  # ── fptn ─ independent full-tunnel TUN VPN (off by default) ──────────────
+  # ── fptn  (full-tunnel TUN VPN, off by default) ──────────────────
+  # Token-based, no standard protocol fingerprint. Last-resort fallback.
   fptn:
     enabled: false
     port: 2096
     sni: www.rust-lang.org
 
+# ── subscription ─────────────────────────────────────────────────
+# Clients add this URL once; all configs appear and auto-update.
+# Cert includes server IP as SAN → https://IP/s/TOKEN validates cleanly.
 subscription:
   enabled: true
-  front_sni: www.kernel.org  # dedicated SNI (not a core route); random token on 443
-  # URL uses server IP with IP SAN cert — validates without --insecure
+  front_sni: www.kernel.org   # dedicated SNI not used by any core above
 
 client:
   emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]
