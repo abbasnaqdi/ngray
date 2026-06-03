@@ -1,0 +1,9 @@
+# Keep the build context lean and free of secrets / local artifacts.
+.git
+resource/
+sandbox/
+ngray
+dist/
+proxy-state.json
+*_clean.txt
+.codegraph/
