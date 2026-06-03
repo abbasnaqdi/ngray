@@ -58,7 +58,15 @@ type Shoes struct {
 }
 
 type Singbox struct {
-	Reality []Reality `yaml:"reality"`
+	Reality []Reality    `yaml:"reality"`
+	TUIC    *SingboxTUIC `yaml:"tuic,omitempty"`
+}
+
+// SingboxTUIC configures a TUIC v5 inbound inside sing-box (independent UDP port).
+type SingboxTUIC struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port"`
+	SNI     string `yaml:"sni"` // SNI for the self-signed TLS cert
 }
 
 type Hysteria2 struct {
@@ -102,8 +110,10 @@ func Default() *Config {
 			},
 			Singbox: Singbox{
 				Reality: []Reality{
-					{SNI: "docs.python.org", Proto: "vless_vision"},
+					{SNI: "docs.python.org", Proto: "anytls"},
+					{SNI: "www.nginx.org", Proto: "vless_vision"},
 				},
+				TUIC: &SingboxTUIC{Enabled: true, Port: 36711, SNI: "www.rust-lang.org"},
 			},
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087}, SNI: "www.rust-lang.org", Obfs: "salamander"},
 			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org"},

@@ -24,9 +24,10 @@ type Endpoint struct {
 	UUID     string // vless
 	Password string // anytls
 
-	AuthPass string // hysteria2
+	AuthPass string // hysteria2 / tuic password
 	Obfs     string // hysteria2 obfs type
 	ObfsPass string
+	TUICPass string // tuic password (separate from auth UUID)
 
 	Path string // xhttp
 }
@@ -69,6 +70,12 @@ func (e Endpoint) URI() string {
 		q.Set("sni", e.SNI)
 		q.Set("insecure", "1")
 		return fmt.Sprintf("hysteria2://%s@%s?%s#%s", e.AuthPass, host, q.Encode(), frag(e.Tag))
+	case "tuic":
+		q.Set("congestion_control", "bbr")
+		q.Set("alpn", "h3")
+		q.Set("sni", e.SNI)
+		q.Set("allow_insecure", "1")
+		return fmt.Sprintf("tuic://%s:%s@%s?%s#%s", e.UUID, e.TUICPass, host, q.Encode(), frag(e.Tag))
 	}
 	return ""
 }

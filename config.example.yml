@@ -2,53 +2,62 @@
 # Copy to config.yml next to the binary and edit.
 # Every REALITY `sni` must be a real TLS1.3 + h2 site and must be UNIQUE
 # across all cores (nginx routes one SNI to one backend).
-# Validate candidates first: ngray sni test / sni discover
+# Validate candidates first: ngray sni test / ngray sni discover
 #
-# Design: each core+SNI pair is a distinct bypass shape. More shapes = better
-# survival across MCI / Irancell-MTN / Rightel. All TCP cores share nginx:443;
-# hysteria2 and fptn are independent (their own public ports).
+# Protocol strategy — each core+shape covers a different bypass mechanism:
+#   xray       → REALITY+Vision (best MCI)  +  XHTTP (best MTN/censored)
+#   shoes      → AnyTLS (padding obfuscation) + Vision (Rust TLS fingerprint)
+#   sing-box   → AnyTLS + Vision + TUIC (QUIC, different from hy2)
+#   hysteria2  → Salamander QUIC/UDP, handles 50% packet loss (MTN/Rightel)
+#   fptn       → full-tunnel TUN VPN (token-based fallback)
 
 server:
-  ip: auto                 # auto-detect public IP
-  enable_bbr: true         # BBR + fq for throughput on lossy links
+  ip: auto
+  enable_bbr: true
 
 nginx:
-  port: 443                # only public TCP surface; SNI-multiplexed
+  port: 443
 
 cores:
-  # ── xray (loopback backends 11000-11999, behind nginx:443) ──────────────
+  # ── xray ─ loopback backends 11000-11999, behind nginx:443 ───────────────
   xray:
-    reality:               # VLESS + REALITY + XTLS-Vision — best cross-operator
-      - {sni: www.rust-lang.org}          # TLS1.3 h2 X25519 ✓
-      - {sni: dl.google.com}              # near-server IPs, OCSP stapling ✓
-    xhttp:                 # chunked HTTP behind real nginx; authentic fingerprint
-      - {sni: www.python.org}             # widely whitelisted
-      - {sni: pypi.org}                   # alternate shape
+    reality:
+      - {sni: www.rust-lang.org}   # TLS1.3 h2 X25519 ✓ VLESS+Vision
+      - {sni: dl.google.com}       # near-server IPs, OCSP stapling ✓
+    xhttp:
+      - {sni: www.python.org}      # chunked HTTP — different shape for MTN
+      - {sni: pypi.org}
 
-  # ── shoes (loopback backends 12000-12999) ───────────────────────────────
+  # ── shoes ─ loopback backends 12000-12999, behind nginx:443 ──────────────
+  # Rust TLS stack — sometimes connects when xray/sing-box can't
   shoes:
     reality:
-      - {sni: www.debian.org,  proto: anytls}       # AnyTLS padding obfuscation
-      - {sni: www.archlinux.org, proto: vless_vision} # different SNI fingerprint
+      - {sni: www.debian.org,    proto: anytls}       # TCP padding obfuscation
+      - {sni: www.archlinux.org, proto: anytls}       # alternate AnyTLS shape
+      - {sni: www.nginx.org,     proto: vless_vision} # Vision via Rust TLS
 
-  # ── sing-box (loopback backends 13000-13999) ────────────────────────────
+  # ── sing-box ─ loopback backends 13000-13999, behind nginx:443 ───────────
+  # Widest client support (husi, exclave, nekobox natively use sing-box)
   singbox:
     reality:
-      - {sni: docs.python.org, proto: anytls}       # AnyTLS via sing-box
-      - {sni: www.nginx.org,   proto: vless_vision} # VLESS+Vision via sing-box
+      - {sni: docs.python.org, proto: anytls}
+      - {sni: kotlinlang.org,  proto: vless_vision}
+    tuic:
+      enabled: true
+      port: 36711      # independent UDP port — QUIC v5, bbr, different from hy2
+      sni: www.rust-lang.org
 
-  # ── hysteria2 — independent QUIC/UDP core (not behind nginx) ────────────
-  # Salamander obfs turns QUIC into patternless UDP — survives lossy MTN.
-  # alt_ports: same credentials, firewall redirects them to the main port.
-  # Clients can try any port; useful when one is rate-limited or blocked.
+  # ── hysteria2 ─ independent QUIC/UDP core (not behind nginx) ─────────────
+  # Salamander obfs turns QUIC into patternless UDP; brutal CC handles packet loss.
+  # alt_ports: same credentials, firewall redirects them → main port (port hopping).
   hysteria2:
     enabled: true
-    port: 443              # UDP 443 — mimics HTTP/3
+    port: 443          # UDP 443 — mimics HTTP/3
     alt_ports: [8443, 2087, 2096]
     sni: www.rust-lang.org
     obfs: salamander
 
-  # ── fptn — independent TUN VPN (token-based, full-tunnel); off by default
+  # ── fptn ─ independent full-tunnel TUN VPN (off by default) ──────────────
   fptn:
     enabled: false
     port: 2096
@@ -57,7 +66,7 @@ cores:
 subscription:
   enabled: true
   front_sni: www.kernel.org  # dedicated SNI (not a core route); random token on 443
-  # subscribe URL uses the server IP directly (cert includes IP SAN so TLS validates)
+  # URL uses server IP with IP SAN cert — validates without --insecure
 
 client:
   emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]

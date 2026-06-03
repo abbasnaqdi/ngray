@@ -255,6 +255,9 @@ func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st 
 			r.Redirects = append(r.Redirects, firewall.UDPRedirect{From: ap, To: h.Port})
 		}
 	}
+	if t := cfg.Cores.Singbox.TUIC; t != nil && t.Enabled {
+		r.UDP = append(r.UDP, t.Port)
+	}
 	if cfg.Cores.Fptn.Enabled {
 		r.TCP = append(r.TCP, cfg.Cores.Fptn.Port)
 	}

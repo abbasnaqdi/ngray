@@ -3,28 +3,48 @@ package cores
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/nginx"
+	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 )
 
-const singboxConf = "/etc/sing-box/config.json"
+const (
+	singboxConf    = "/etc/sing-box/config.json"
+	singboxTUICCrt = "/etc/sing-box/tuic.crt"
+	singboxTUICKey = "/etc/sing-box/tuic.key"
+)
 
 type Singbox struct{}
 
-func (Singbox) Name() string                  { return "sing-box" }
-func (Singbox) Repo() string                  { return "SagerNet/sing-box" }
-func (Singbox) Service() string               { return "sing-box" }
-func (Singbox) Enabled(c *config.Config) bool { return len(c.Cores.Singbox.Reality) > 0 }
+func (Singbox) Name() string    { return "sing-box" }
+func (Singbox) Repo() string    { return "SagerNet/sing-box" }
+func (Singbox) Service() string { return "sing-box" }
+func (Singbox) Enabled(c *config.Config) bool {
+	return len(c.Cores.Singbox.Reality) > 0 ||
+		(c.Cores.Singbox.TUIC != nil && c.Cores.Singbox.TUIC.Enabled)
+}
 
 func (Singbox) Installed(ctx context.Context, sys *system.Env) (string, bool) {
 	return detect(ctx, sys, "sing-box")
 }
 
+// Install downloads the latest sing-box deb directly from GitHub releases,
+// avoiding the upstream deb-install.sh script which hits rate-limited API calls.
 func (Singbox) Install(ctx context.Context, sys *system.Env) error {
-	_, err := sys.Run(ctx, "bash", "-c", "curl -fsSL https://sing-box.app/deb-install.sh | bash")
+	url, err := sys.AssetURL(ctx, "SagerNet/sing-box", `sing-box_.*_linux_amd64\.deb`)
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(os.TempDir(), "sing-box.deb")
+	if err := sys.Download(ctx, url, tmp); err != nil {
+		return err
+	}
+	_, err = sys.Run(ctx, "dpkg", "-i", tmp)
 	return err
 }
 
@@ -75,6 +95,29 @@ func (Singbox) Build(p *Plan) (Result, error) {
 		}
 		res.Routes = append(res.Routes, nginx.Route{SNI: r.SNI, Backend: port})
 		res.Endpoints = append(res.Endpoints, ep, epDirect)
+	}
+
+	if t := p.Cfg.Cores.Singbox.TUIC; t != nil && t.Enabled {
+		if err := p.Sys.GenSelfSigned(t.SNI, singboxTUICCrt, singboxTUICKey); err != nil {
+			return Result{}, err
+		}
+		uid := uuid(p.St, "singbox|tuic")
+		pw := p.St.Secret("singbox|tuic|pw", func() state.Secret {
+			return state.Secret{Password: state.NewPassword(20)}
+		}).Password
+		inbounds = append(inbounds, map[string]any{
+			"type": "tuic", "listen": "0.0.0.0", "listen_port": t.Port,
+			"users":              []map[string]any{{"uuid": uid, "password": pw}},
+			"congestion_control": "bbr",
+			"tls": map[string]any{
+				"enabled": true, "server_name": t.SNI, "alpn": []string{"h3"},
+				"certificate_path": singboxTUICCrt, "key_path": singboxTUICKey,
+			},
+		})
+		res.Endpoints = append(res.Endpoints, links.Endpoint{
+			Tag: links.Tag("sb", "tuic", t.SNI), Proto: "tuic",
+			Server: p.IP, Port: t.Port, SNI: t.SNI, UUID: uid, TUICPass: pw,
+		})
 	}
 
 	cfg := map[string]any{"inbounds": inbounds, "outbounds": []map[string]any{{"type": "direct"}}}
