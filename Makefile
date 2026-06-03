@@ -56,12 +56,14 @@ release: dist
 	gh release create v$(VERSION) dist/* --title "ng-ray v$(VERSION)" --generate-notes
 
 # Build a ready-to-run local package in pkg/release/.
-# config.example.yml is copied as config.yml — no manual rename needed.
+# config.example.yml ships as a reference (NOT as config.yml): with no config.yml
+# present, `ngray server setup` auto-populates the full SNI set from the server's
+# own vantage, and that generated config.yml then survives future deploys.
 # Usage: make package   (version is read automatically from version.go)
 package: build
 	@rm -rf pkg/release && mkdir -p pkg/release/snis
 	@cp ngray              pkg/release/ngray
-	@cp config.example.yml pkg/release/config.yml
+	@cp config.example.yml pkg/release/config.example.yml
 	@cp snis/candidates.sni pkg/release/snis/candidates.sni
 	@echo "✓ pkg/release/  (ngray v$(VERSION), $(DATE))"
 	@ls -lh pkg/release/ngray
