@@ -4,36 +4,53 @@
 #
 # Good REALITY SNI: TLS1.3 + h2 ALPN + X25519 + non-redirect + IP near VPS.
 #
-# Protocol-specific notes:
-#   REALITY+Vision  — any OK SNI; prefer IP near VPS (use `ngray sni test`)
-#   XHTTP           — prefer Cloudflare/Fastly CDN (no rate-limiting on chunked streams):
-#                     pypi.org, files.pythonhosted.org, jsdelivr.net, npmjs.com, jquery.com
-#                     Avoid Google (rate-limits unusual HTTP/2 patterns aggressively)
-#   AnyTLS          — any OK SNI; padding obfuscation is protocol-level, SNI choice matters less
-#   TUIC/Hysteria2  — SNI is for self-signed cert only; IP routing, not nginx; any OK SNI fine
+# Protocol notes:
+#   REALITY+Vision  — any OK SNI; prefer IP geographically near VPS
+#   XHTTP           — must be Cloudflare or Fastly CDN (no h2 stream rate-limiting)
+#                     Best: pypi.org, npmjs.com, jsdelivr.net, cdnjs.com
+#                     Avoid Google domains (aggressive rate-limiting on chunked h2)
+#   AnyTLS / TUIC   — any OK SNI; REALITY keypair authenticates, SNI is cosmetic
 
-# ── Tech / developer (widely whitelisted by Iranian carriers) ──────────────
-fastly.com
+# ── Cloudflare CDN (best for XHTTP; global, reliable h2, no rate-limiting) ──
 pypi.org
+npmjs.com
+registry.npmjs.org
+jsdelivr.net
+cdnjs.com
+jquery.com
+react.dev
+unpkg.com
+cloudflare.com
+workers.dev
+pages.dev
+dash.cloudflare.com
+
+# ── Fastly CDN (also excellent for XHTTP) ────────────────────────────────────
+fastly.com
 files.pythonhosted.org
-docs.python.org
+github.global.ssl.fastly.net
+
+# ── Developer / programming (widely whitelisted by Iranian ISPs) ──────────────
 python.org
+www.python.org
+docs.python.org
 rust-lang.org
 www.rust-lang.org
 crates.io
 pkg.go.dev
 golang.org
+www.golang.org
 nodejs.org
-npmjs.com
-registry.npmjs.org
-jquery.com
-react.dev
-rubygems.org
 kotlinlang.org
 gradle.org
+rubygems.org
 jetbrains.com
+www.jetbrains.com
+plugins.jetbrains.com
+download.jetbrains.com
+hub.jetbrains.com
 
-# ── Linux / open source infra ──────────────────────────────────────────────
+# ── Linux / open-source infra ─────────────────────────────────────────────────
 kernel.org
 www.kernel.org
 debian.org
@@ -41,37 +58,42 @@ www.debian.org
 archlinux.org
 www.archlinux.org
 ubuntu.com
+releases.ubuntu.com
 canonical.com
 fedoraproject.org
+download.fedoraproject.org
 centos.org
 opensuse.org
+mirrors.opensuse.org
 redhat.com
 linuxfoundation.org
 nginx.org
 www.nginx.org
 
-# ── Google (high TLS quality, X25519, OCSP stapling, near many VPS) ────────
+# ── GitHub / GitLab (widely whitelisted, Fastly/Azure backed) ────────────────
+github.com
+raw.githubusercontent.com
+objects.githubusercontent.com
+codeload.github.com
+gitlab.com
+bitbucket.org
+
+# ── Google (X25519, OCSP stapling, near most EU/AS VPS IPs) ──────────────────
 dl.google.com
-gstatic.com
-fonts.googleapis.com
-googleapis.com
 storage.googleapis.com
-googleusercontent.com
-googlevideo.com
+fonts.googleapis.com
+gstatic.com
+googleapis.com
 redirector.gvt1.com
 gvt1.com
-gvt2.com
-gvt3.com
-google.com
-news.google.com
 developer.android.com
 android.com
 chromium.org
+googlevideo.com
 
-# ── Apple (on most carriers' whitelist, excellent TLS) ─────────────────────
+# ── Apple (on virtually every carrier whitelist) ──────────────────────────────
 apple.com
 icloud.com
-cdn-apple.com
 swcdn.apple.com
 mesu.apple.com
 updates.cdn-apple.com
@@ -80,8 +102,9 @@ appleid.apple.com
 setup.icloud.com
 itunes.apple.com
 apps.mzstatic.com
+cdn-apple.com
 
-# ── Microsoft ──────────────────────────────────────────────────────────────
+# ── Microsoft ─────────────────────────────────────────────────────────────────
 microsoft.com
 download.microsoft.com
 update.microsoft.com
@@ -90,72 +113,81 @@ windowsupdate.com
 microsoftonline.com
 live.com
 outlook.com
-bing.com
 azure.com
 azureedge.net
+azurewebsites.net
 code.visualstudio.com
 visualstudio.com
+devblogs.microsoft.com
+learn.microsoft.com
 
-# ── Samsung (pre-installed on most Iranian devices — strong whitelist) ──────
+# ── Samsung (pre-installed on most Iranian devices — very strong whitelist) ───
 samsung.com
 samsungcloud.com
 samsungapps.com
-samsungdm.com
-samsungknox.com
 r1.samsungdm.com
 ntp.samsungcloud.com
 prd.samsungcloud.com
+shop.samsung.com
+api.samsungosp.com
 
-# ── CDN / infra ────────────────────────────────────────────────────────────
-cloudflare.com
-cdnjs.com
-jsdelivr.net
+# ── Akamai / CDN infra (many enterprise sites hosted here) ────────────────────
+akamaized.net
+akamaihd.net
+akamai.com
+edgecastcdn.net
+stackpathcdn.com
+
+# ── Major SaaS / popular destinations ────────────────────────────────────────
 vercel.com
 vercel.app
-github.com
-raw.githubusercontent.com
-gitlab.com
-sourceforge.net
-letsencrypt.org
-digicert.com
-sectigo.com
-
-# ── Media / social (sometimes whitelisted) ─────────────────────────────────
-vimeo.com
-vimeocdn.com
-wikimedia.org
-wikipedia.org
-imgur.com
-reddit.com
-mozilla.org
-firefox.com
-opera.com
-
-# ── Twitter / X CDN (Fastly-backed — good XHTTP candidate) ────────────────
-pbs.twimg.com
-abs.twimg.com
-api.twitter.com
-video.twimg.com
-
-# ── E-commerce / SaaS ──────────────────────────────────────────────────────
-shopify.com
+netlify.com
+netlify.app
 stripe.com
+shopify.com
 okta.com
 atlassian.com
+jira.com
+confluence.com
+slack.com
+salesforce.com
+oracle.com
+zoom.us
 tradingview.com
+binance.com
+coinbase.com
 
-# ── Hardware vendors / gaming ──────────────────────────────────────────────
+# ── Media / CDN-backed ───────────────────────────────────────────────────────
+wikipedia.org
+wikimedia.org
+vimeo.com
+vimeocdn.com
+twitch.tv
+twitchsvc.net
+pbs.twimg.com
+abs.twimg.com
+imgur.com
+reddit.com
+redd.it
+mozilla.org
+firefox.com
+
+# ── Hardware / gaming / electronics ─────────────────────────────────────────
 intel.com
 amd.com
 nvidia.com
 lg.com
 sony.com
-oracle.com
 epicgames.com
+steampowered.com
 chess.com
 
-# ── Hosting / VPS providers (near many VPS IPs geographically) ─────────────
+# ── VPS / hosting (near server IPs geographically) ───────────────────────────
 hetzner.com
 scaleway.com
 digitalocean.com
 linode.com
+vultr.com
+ovh.com
+contabo.com
+datapacket.com

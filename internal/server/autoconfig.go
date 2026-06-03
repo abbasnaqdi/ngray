@@ -9,24 +9,36 @@ import (
 )
 
 // autoPopulateSNIs tests candidates and assigns the best REALITY-fit SNIs to
-// every core in cfg, then saves config.yml so the user has a permanent record.
-// Called only when no config.yml existed before setup.
+// every core and independent-TLS endpoint in cfg, then saves config.yml.
+// Called only when no config.yml existed before setup (fresh install).
 func autoPopulateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any)) error {
+	return populateSNIs(ctx, candidatesPath, configPath, cfg, log, false)
+}
+
+// RegenerateSNIs re-runs SNI fitness testing and re-assigns all SNI fields in
+// cfg unconditionally (used by the TUI "Regenerate SNIs" action and
+// `ngray sni regen`).
+func RegenerateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any)) error {
+	return populateSNIs(ctx, candidatesPath, configPath, cfg, log, true)
+}
+
+func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any), force bool) error {
 	hosts, err := sni.LoadCandidates(candidatesPath)
 	if err != nil || len(hosts) == 0 {
 		log("auto-SNI: no candidates found at %s — using built-in defaults", candidatesPath)
 		return nil
 	}
-	log("auto-SNI: testing %d candidates to find best REALITY-fit SNIs for this VPS…", len(hosts))
+	log("auto-SNI: testing %d candidates for REALITY fitness (this takes ~60s)…", len(hosts))
 
-	tctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	// 90s gives enough time even on distant VPS with high latency candidates.
+	tctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
 	var passed, failed int
-	results := sni.NewTester().TestAll(tctx, hosts, 32, func(r sni.Result) {
+	results := sni.NewTester().TestAll(tctx, hosts, 48, func(r sni.Result) {
 		if r.Fit() {
 			passed++
-			log("  ✓ %s (%dms)", r.Host, r.MedianMS)
+			log("  ✓ %-36s %dms", r.Host, r.MedianMS)
 		} else {
 			failed++
 		}
@@ -34,75 +46,117 @@ func autoPopulateSNIs(ctx context.Context, candidatesPath, configPath string, cf
 
 	ranked := sni.Ranked(results)
 	if len(ranked) == 0 {
-		log("auto-SNI: no SNIs passed fitness check — keeping defaults")
+		log("auto-SNI: no SNIs passed fitness check — keeping current config")
 		return nil
 	}
-	log("auto-SNI: %d passed, %d failed — assigning best to cores", passed, failed)
+	log("auto-SNI: %d passed, %d failed — assigning best SNIs to all cores", passed, failed)
 
-	// Assign in order, never repeating a SNI.
-	assign := func(n int, proto string) []config.Reality {
-		var out []config.Reality
-		for len(ranked) > 0 && len(out) < n {
-			out = append(out, config.Reality{SNI: ranked[0].Host, Proto: proto})
-			ranked = ranked[1:]
-		}
-		return out
+	pop := &sniBudget{ranked: ranked}
+
+	// xray: 6 REALITY + 4 XHTTP (XHTTP strongly prefers CDN hosts)
+	cfg.Cores.Xray.Reality = pop.reality(6, "")
+	cfg.Cores.Xray.XHTTP = pop.xhttp(4)
+
+	// shoes: mix anytls (primary) and vless_vision (backup)
+	cfg.Cores.Shoes.Reality = pop.mixedReality(6, "anytls", "vless_vision", 3)
+
+	// singbox: mix anytls (primary) and vless_vision (backup)
+	cfg.Cores.Singbox.Reality = pop.mixedReality(6, "anytls", "vless_vision", 3)
+
+	// Independent-TLS cores and the subscription all share the same best SNI
+	// for their self-signed cert (or masquerade target). Reuse first remaining.
+	best := pop.next()
+	if best == "" && len(ranked) > 0 {
+		best = ranked[0].Host // fallback: reuse top result
 	}
-	assignXHTTP := func(n int) []config.XHTTP {
-		var out []config.XHTTP
-		for len(ranked) > 0 && len(out) < n {
-			out = append(out, config.XHTTP{SNI: ranked[0].Host})
-			ranked = ranked[1:]
-		}
-		return out
-	}
-
-	// xray: 4 REALITY + 3 XHTTP
-	cfg.Cores.Xray.Reality = assign(4, "")
-	cfg.Cores.Xray.XHTTP = assignXHTTP(3)
-
-	// shoes: alternating anytls / vless_vision
-	var shoesReality []config.Reality
-	for i := 0; len(ranked) > 0 && i < 5; i++ {
-		proto := "anytls"
-		if i%3 == 2 {
-			proto = "vless_vision"
-		}
-		shoesReality = append(shoesReality, config.Reality{SNI: ranked[0].Host, Proto: proto})
-		ranked = ranked[1:]
-	}
-	cfg.Cores.Shoes.Reality = shoesReality
-
-	// singbox: alternating anytls / vless_vision
-	var sbReality []config.Reality
-	for i := 0; len(ranked) > 0 && i < 5; i++ {
-		proto := "anytls"
-		if i%3 == 2 {
-			proto = "vless_vision"
-		}
-		sbReality = append(sbReality, config.Reality{SNI: ranked[0].Host, Proto: proto})
-		ranked = ranked[1:]
-	}
-	cfg.Cores.Singbox.Reality = sbReality
-
-	// hysteria2 + TUIC + ShadowTLS: reuse first fit SNI (independent cores)
-	if len(ranked) > 0 {
-		best := ranked[0].Host
+	if best != "" {
 		cfg.Cores.Hysteria2.SNI = best
+		if cfg.Cores.Shoes.TUIC != nil {
+			cfg.Cores.Shoes.TUIC.SNI = best
+		}
+		if cfg.Cores.Shoes.Hysteria2 != nil {
+			cfg.Cores.Shoes.Hysteria2.SNI = best
+		}
 		if cfg.Cores.Singbox.TUIC != nil {
 			cfg.Cores.Singbox.TUIC.SNI = best
 		}
 		if cfg.Cores.Singbox.ShadowTLS != nil {
 			cfg.Cores.Singbox.ShadowTLS.SNI = best
 		}
+		if cfg.Subscription.FrontSNI == "" || force {
+			cfg.Subscription.FrontSNI = best
+		}
 	}
 
 	if err := config.Save(configPath, cfg); err != nil {
 		log("auto-SNI: could not save config.yml: %v", err)
-		return nil // non-fatal; continue with the in-memory config
+		return nil
 	}
-	log("auto-SNI: config.yml written with %d SNIs",
+	log("auto-SNI: config.yml written with %d SNIs across all cores",
 		len(cfg.Cores.Xray.Reality)+len(cfg.Cores.Xray.XHTTP)+
 			len(cfg.Cores.Shoes.Reality)+len(cfg.Cores.Singbox.Reality))
 	return nil
+}
+
+// sniBudget hands out ranked SNIs without repeating any host.
+type sniBudget struct {
+	ranked []sni.Result
+	used   map[string]bool
+}
+
+func (b *sniBudget) next() string {
+	if b.used == nil {
+		b.used = map[string]bool{}
+	}
+	for len(b.ranked) > 0 {
+		h := b.ranked[0].Host
+		b.ranked = b.ranked[1:]
+		if !b.used[h] {
+			b.used[h] = true
+			return h
+		}
+	}
+	return ""
+}
+
+func (b *sniBudget) reality(n int, proto string) []config.Reality {
+	var out []config.Reality
+	for i := 0; i < n; i++ {
+		h := b.next()
+		if h == "" {
+			break
+		}
+		out = append(out, config.Reality{SNI: h, Proto: proto})
+	}
+	return out
+}
+
+func (b *sniBudget) xhttp(n int) []config.XHTTP {
+	var out []config.XHTTP
+	for i := 0; i < n; i++ {
+		h := b.next()
+		if h == "" {
+			break
+		}
+		out = append(out, config.XHTTP{SNI: h})
+	}
+	return out
+}
+
+// mixedReality assigns n SNIs cycling through protos, with the secondary proto
+// appearing every stride-th position.
+func (b *sniBudget) mixedReality(n int, primary, secondary string, stride int) []config.Reality {
+	var out []config.Reality
+	for i := 0; i < n; i++ {
+		h := b.next()
+		if h == "" {
+			break
+		}
+		proto := primary
+		if stride > 0 && (i+1)%stride == 0 {
+			proto = secondary
+		}
+		out = append(out, config.Reality{SNI: h, Proto: proto})
+	}
+	return out
 }

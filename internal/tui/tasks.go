@@ -23,6 +23,9 @@ func buildItems() []item {
 			desc:         "Install + configure every enabled core, nginx SNI mux and subscribe link. Needs root; runs in sandbox otherwise.",
 			wizardBefore: true,
 			task:         taskSetup},
+		{key: "r", name: "Re-select SNIs",
+			desc: "Test all SNI candidates and assign the best-fit ones to every core. Run this if connections are failing, then re-run setup.",
+			task: taskRegenSNIs},
 		{key: "2", name: "Client links · subscribe",
 			desc: "Show the share links and the fixed subscribe URL from the last setup. Import them into v2rayN / nekoray / husi.",
 			task: taskLinks},
@@ -59,6 +62,22 @@ func buildItems() []item {
 	}
 }
 
+func taskRegenSNIs(ctx context.Context, emit func(string)) error {
+	cfg, err := config.LoadOrDefault(config.Path())
+	if err != nil {
+		return err
+	}
+	emit(dimStyle.Render("• ") + "testing SNI candidates — takes ~90s…")
+	if err := server.RegenerateSNIs(ctx, candidatesPath(), config.Path(), cfg, func(f string, a ...any) {
+		emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...))
+	}); err != nil {
+		return err
+	}
+	emit("")
+	emit(okStyle.Render("✓ config.yml updated — run Server setup to apply"))
+	return nil
+}
+
 func taskSetup(ctx context.Context, emit func(string)) error {
 	sandbox := os.Geteuid() != 0
 	if sandbox {
@@ -80,15 +99,17 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 	if d.SubURL != "" {
 		emit("")
 		emit(keyStyle.Render("subscribe"))
+		if d.SubHTTPURL != "" {
+			emit("  HTTP   " + okStyle.Render(d.SubHTTPURL))
+			emit(dimStyle.Render("          browser-friendly · no TLS warning"))
+		}
 		emit("  HTTPS  " + okStyle.Render(d.SubURL))
 		if d.SubCertFingerprint != "" {
-			emit("  cert   " + dimStyle.Render("SHA256:"+d.SubCertFingerprint))
+			emit(dimStyle.Render("  cert   SHA256:" + d.SubCertFingerprint))
+			emit(dimStyle.Render("          self-signed · browsers always warn · proxy clients use pinSHA256"))
 		}
 		if d.SubSingboxURL != "" {
 			emit("  sbJSON " + okStyle.Render(d.SubSingboxURL))
-		}
-		if d.SubHTTPURL != "" {
-			emit("  HTTP   " + dimStyle.Render(d.SubHTTPURL))
 		}
 	}
 	return nil

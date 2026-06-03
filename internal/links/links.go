@@ -69,7 +69,7 @@ func (e Endpoint) URI() string {
 		q.Set("fp", "chrome")
 		q.Set("pbk", e.PublicKey)
 		q.Set("sid", e.ShortID)
-		q.Set("insecure", "1")
+		// No insecure flag: REALITY authenticates via keypair, not TLS chain.
 		return fmt.Sprintf("anytls://%s@%s?%s#%s", e.Password, host, q.Encode(), frag(e.Tag))
 	case "hysteria2":
 		q.Set("obfs", e.Obfs)

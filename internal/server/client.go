@@ -82,15 +82,17 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config) error {
 
 	if d.SubURL != "" && emit.allows("subscription") {
 		fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
+		if d.SubHTTPURL != "" {
+			fmt.Fprintf(w, "  HTTP   %s\n", d.SubHTTPURL)
+			fmt.Fprintf(w, "         (browser-friendly; no TLS warning)\n")
+		}
 		fmt.Fprintf(w, "  HTTPS  %s\n", d.SubURL)
 		if d.SubCertFingerprint != "" {
 			fmt.Fprintf(w, "  cert   SHA256:%s\n", d.SubCertFingerprint)
+			fmt.Fprintf(w, "         (self-signed — browsers always warn; proxy clients use pinSHA256)\n")
 		}
 		if d.SubSingboxURL != "" {
 			fmt.Fprintf(w, "  sbJSON %s\n", d.SubSingboxURL)
-		}
-		if d.SubHTTPURL != "" {
-			fmt.Fprintf(w, "  HTTP   %s\n", d.SubHTTPURL)
 		}
 	}
 	return nil
