@@ -6,11 +6,15 @@ LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PK
 
 .PHONY: build install test vet fmt lint check e2e clean
 
+PREFIX ?= /usr/local
+# Elevate with sudo only when the target dir isn't writable.
+SUDO := $(shell [ -w $(PREFIX)/bin ] 2>/dev/null && echo "" || echo sudo)
+
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o ngray ./cmd/ngray
 
 install: build
-	install -m 0755 ngray /usr/local/bin/ngray
+	$(SUDO) install -m 0755 ngray $(PREFIX)/bin/ngray
 
 test:
 	go test ./...
