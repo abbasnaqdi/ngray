@@ -134,11 +134,48 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	if cfg.Subscription.Enabled {
 		token := st.EnsureSubToken()
+
+		// Self-signed cert: regenerate if missing or if the server IP changed.
+		if !sys.CertHasIPSAN(sub.CertFile, ip) {
+			_ = sys.Remove(sub.CertFile)
+			_ = sys.Remove(sub.KeyFile)
+		}
+		extraSANs := []string{ip}
+		if cfg.Subscription.FrontSNI != "" {
+			extraSANs = append(extraSANs, cfg.Subscription.FrontSNI)
+		}
+		if err := sys.GenSelfSigned(ip, sub.CertFile, sub.KeyFile, extraSANs...); err != nil {
+			o.log("warning: subscription TLS cert: %v", err)
+		}
+
+		// Write base64 URI bundle (all endpoints, no emit filter).
 		if err := sub.WriteBundle(sys, links.Subscription(endpoints)); err != nil {
 			return nil, err
 		}
-		ngCfg.Sub = &nginx.Subscription{BundleFile: sub.BundleFile}
-		deploy.SubURL = sub.URL(ip, token)
+		// Write sing-box JSON bundle (best-effort; non-fatal).
+		if sjson, err := links.SingboxJSON(endpoints); err == nil {
+			if err := sub.WriteSingboxBundle(sys, sjson); err != nil {
+				o.log("warning: singbox bundle: %v", err)
+			}
+		}
+
+		httpsPort := cfg.Subscription.HTTPSPort
+		if httpsPort <= 0 {
+			httpsPort = sub.DefaultHTTPSPort
+		}
+
+		ngCfg.Sub = &nginx.Subscription{
+			Dir:         sub.Dir,
+			BundleFile:  "bundle",
+			SingboxFile: "singbox-bundle.json",
+			CertFile:    sub.CertFile,
+			KeyFile:     sub.KeyFile,
+			HTTPSPort:   httpsPort,
+		}
+		deploy.SubURL = sub.HTTPSURL(ip, token, httpsPort)
+		deploy.SubHTTPURL = sub.URL(ip, token)
+		deploy.SubSingboxURL = sub.SingboxURL(ip, token, httpsPort)
+		o.log("subscription: HTTPS port %d, HTTP port %d", httpsPort, sub.HTTPPort)
 	}
 
 	if err := writeNginx(ctx, sys, ngCfg, o); err != nil {
@@ -265,7 +302,11 @@ func restartServices(ctx context.Context, sys *system.Env, cfg *config.Config, o
 func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st *state.State, o Options) error {
 	r := firewall.Rules{TCP: []int{cfg.Nginx.Port}}
 	if cfg.Subscription.Enabled {
-		r.TCP = append(r.TCP, sub.HTTPPort) // plain HTTP for subscribe link
+		httpsPort := cfg.Subscription.HTTPSPort
+		if httpsPort <= 0 {
+			httpsPort = sub.DefaultHTTPSPort
+		}
+		r.TCP = append(r.TCP, sub.HTTPPort, httpsPort)
 	}
 	for _, p := range st.Ports {
 		r.TCP = append(r.TCP, p)

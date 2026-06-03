@@ -44,10 +44,16 @@ TCP port, and SSH.
 
 ## Subscription
 
-nginx serves a TLS endpoint for a dedicated `front_sni` on a loopback port (8443), routed by
-the same SNI map. It returns the base64 link bundle at `/s/<random-token>`. The token is
-persisted in state so the subscribe URL stays stable across re-runs. Self-signed cert (no
-domain), so clients fetch it allow-insecure.
+nginx serves two subscription endpoints:
+
+- **HTTP :80** — plain-text fallback, `/s/<token>` → base64 URI list
+- **HTTPS :8443** — self-signed cert (IP SAN); `/s/<token>` → base64 URI list,
+  `/sb/<token>` → sing-box JSON outbound list
+
+The token (32 hex chars) is generated once and persisted in `proxy-state.json`
+so the subscribe URL is stable across re-runs. The self-signed cert is
+regenerated automatically when the server IP changes (`CertHasIPSAN` check).
+Clients must enable skip-cert-verify for the HTTPS URL.
 
 ## Safety
 

@@ -32,7 +32,9 @@ func (Mieru) Installed(ctx context.Context, sys *system.Env) (string, bool) {
 	return detect(ctx, sys, "mita")
 }
 
-// Install downloads the mita binary from the latest GitHub release.
+// Install downloads the mita binary from the latest GitHub release and writes
+// a systemd unit that passes the config file via MITA_CONFIG_JSON_FILE so
+// mita run loads it directly — no gRPC apply-config step needed.
 func (Mieru) Install(ctx context.Context, sys *system.Env) error {
 	url, err := sys.AssetURL(ctx, "enfein/mieru", `mita.*linux.*amd64\.tar\.gz`)
 	if err != nil {
@@ -48,8 +50,26 @@ func (Mieru) Install(ctx context.Context, sys *system.Env) error {
 	if err := os.MkdirAll(mieruDir, 0o755); err != nil {
 		return err
 	}
-	if err := sys.WriteUnit("mieru-server.service",
-		unit("mieru proxy server", mieruBin+" run")); err != nil {
+	// RuntimeDirectory=mita creates /run/mita on service start (survives reboots).
+	// MITA_CONFIG_JSON_FILE tells mita run to load config from our JSON file;
+	// no mita apply config gRPC call required.
+	svc := fmt.Sprintf(`[Unit]
+Description=mieru proxy server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%s run
+Environment=MITA_CONFIG_JSON_FILE=%s
+RuntimeDirectory=mita
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+`, mieruBin, mieruConf)
+	if err := sys.WriteUnit("mieru-server.service", svc); err != nil {
 		return err
 	}
 	return sys.DaemonReload(ctx)
@@ -67,19 +87,17 @@ func (Mieru) Build(p *Plan) (Result, error) {
 		"loggingLevel": "INFO",
 		"mtu":          1400,
 	}
-	out, err := json.MarshalIndent(serverCfg, "", "  ")
+	raw, err := json.MarshalIndent(serverCfg, "", "  ")
 	if err != nil {
 		return Result{}, err
 	}
-	if err := p.Sys.WriteFile(mieruConf, out, 0o600); err != nil {
+	if err := p.Sys.WriteFile(mieruConf, raw, 0o600); err != nil {
 		return Result{}, err
 	}
 
-	// Apply config and restart service (mita reads the file via its own config store).
+	// mita run reads MITA_CONFIG_JSON_FILE set in the systemd unit, so we only
+	// need to (re)start the service — no mita apply config gRPC call required.
 	ctx := context.Background()
-	if _, err := p.Sys.Run(ctx, mieruBin, "apply", "config", mieruConf); err != nil {
-		return Result{}, fmt.Errorf("mita apply config: %w", err)
-	}
 	if err := p.Sys.EnableNow(ctx, "mieru-server"); err != nil {
 		_ = p.Sys.Restart(ctx, "mieru-server")
 	}

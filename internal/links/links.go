@@ -1,5 +1,5 @@
 // Package links turns live server endpoints into client share URIs, a sing-box
-// JSON bundle, a base64 subscription and terminal QR codes.
+// JSON bundle, and a base64 subscription.
 package links
 
 import (

@@ -42,9 +42,11 @@ type State struct {
 // Deploy is the snapshot of the last successful provisioning, so client output
 // can be rendered without re-running the build.
 type Deploy struct {
-	Endpoints []links.Endpoint  `json:"endpoints,omitempty"`
-	Notes     map[string]string `json:"notes,omitempty"`
-	SubURL    string            `json:"sub_url,omitempty"`
+	Endpoints     []links.Endpoint  `json:"endpoints,omitempty"`
+	Notes         map[string]string `json:"notes,omitempty"`
+	SubURL        string            `json:"sub_url,omitempty"`         // HTTPS primary (port 8443)
+	SubHTTPURL    string            `json:"sub_http_url,omitempty"`    // HTTP fallback (port 80)
+	SubSingboxURL string            `json:"sub_singbox_url,omitempty"` // sing-box JSON (HTTPS)
 }
 
 func Path() string {

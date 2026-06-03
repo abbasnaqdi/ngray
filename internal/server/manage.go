@@ -23,6 +23,9 @@ var managedPaths = []string{
 	"/usr/local/etc/xray/config.json",
 	"/etc/hysteria/config.yaml",
 	sub.BundleFile,
+	sub.SingboxFile,
+	sub.CertFile,
+	sub.KeyFile,
 }
 
 type Status string

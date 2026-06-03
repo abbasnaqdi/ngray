@@ -43,6 +43,7 @@ www.archlinux.org
 ubuntu.com
 canonical.com
 fedoraproject.org
+centos.org
 opensuse.org
 redhat.com
 linuxfoundation.org
@@ -53,12 +54,16 @@ www.nginx.org
 dl.google.com
 gstatic.com
 fonts.googleapis.com
+googleapis.com
 storage.googleapis.com
+googleusercontent.com
+googlevideo.com
 redirector.gvt1.com
 gvt1.com
 gvt2.com
 gvt3.com
 google.com
+news.google.com
 developer.android.com
 android.com
 chromium.org
@@ -79,12 +84,17 @@ apps.mzstatic.com
 # ── Microsoft ──────────────────────────────────────────────────────────────
 microsoft.com
 download.microsoft.com
+update.microsoft.com
 packages.microsoft.com
 windowsupdate.com
 microsoftonline.com
+live.com
+outlook.com
+bing.com
 azure.com
 azureedge.net
 code.visualstudio.com
+visualstudio.com
 
 # ── Samsung (pre-installed on most Iranian devices — strong whitelist) ──────
 samsung.com
@@ -116,6 +126,16 @@ vimeocdn.com
 wikimedia.org
 wikipedia.org
 imgur.com
+reddit.com
+mozilla.org
+firefox.com
+opera.com
+
+# ── Twitter / X CDN (Fastly-backed — good XHTTP candidate) ────────────────
+pbs.twimg.com
+abs.twimg.com
+api.twitter.com
+video.twimg.com
 
 # ── E-commerce / SaaS ──────────────────────────────────────────────────────
 shopify.com
@@ -128,6 +148,8 @@ tradingview.com
 intel.com
 amd.com
 nvidia.com
+lg.com
+sony.com
 oracle.com
 epicgames.com
 chess.com

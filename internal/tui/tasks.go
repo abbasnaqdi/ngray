@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
-	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
@@ -22,9 +20,10 @@ import (
 func buildItems() []item {
 	return []item{
 		{key: "1", name: "Server setup / repair",
-			desc: "Install + configure every enabled core, build the nginx SNI mux and the subscribe link. Needs root for a real server; runs in sandbox otherwise.",
-			task: taskSetup},
-		{key: "2", name: "Client links · QR · subscribe",
+			desc:         "Install + configure every enabled core, nginx SNI mux and subscribe link. Needs root; runs in sandbox otherwise.",
+			wizardBefore: true,
+			task:         taskSetup},
+		{key: "2", name: "Client links · subscribe",
 			desc: "Show the share links and the fixed subscribe URL from the last setup. Import them into v2rayN / nekoray / husi.",
 			task: taskLinks},
 		{key: "3", name: "Test SNIs (live)",
@@ -77,27 +76,18 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 		return err
 	}
 	emit("")
-	emit(okStyle.Render(fmt.Sprintf("✓ %d endpoint(s)", len(d.Endpoints))))
-	for _, ep := range d.Endpoints {
-		if ep.URI() == "" {
-			continue
-		}
-		emit("")
-		emit(keyStyle.Render(ep.Tag))
-		emit("  " + ep.URI())
-	}
-	// Notes: fptn token, mieru config, AmneziaWG conf
-	for k, v := range d.Notes {
-		emit("")
-		emit(keyStyle.Render("── " + k + " ──"))
-		for _, line := range strings.Split(strings.TrimSpace(v), "\n") {
-			emit(dimStyle.Render(line))
-		}
-	}
+	emit(okStyle.Render(fmt.Sprintf("✓ %d endpoint(s) — use menu item 2 for individual links", len(d.Endpoints))))
 	if d.SubURL != "" {
 		emit("")
-		emit("subscribe: " + okStyle.Render(d.SubURL))
-		emit(links.QR(d.SubURL))
+		emit(keyStyle.Render("subscribe"))
+		emit("  HTTPS  " + okStyle.Render(d.SubURL))
+		emit(dimStyle.Render("          (skip-cert-verify / insecure in client)"))
+		if d.SubSingboxURL != "" {
+			emit("  sbJSON " + okStyle.Render(d.SubSingboxURL))
+		}
+		if d.SubHTTPURL != "" {
+			emit("  HTTP   " + dimStyle.Render(d.SubHTTPURL))
+		}
 	}
 	return nil
 }
@@ -109,7 +99,7 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	}
 	cfg, _ := config.LoadOrDefault(config.Path())
 	var buf bytes.Buffer
-	if err := server.RenderClient(&buf, st, cfg, false); err != nil {
+	if err := server.RenderClient(&buf, st, cfg); err != nil {
 		return err
 	}
 	emitBuf(emit, &buf)

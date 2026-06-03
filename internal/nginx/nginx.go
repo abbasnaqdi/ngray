@@ -1,6 +1,6 @@
 // Package nginx renders an nginx.conf that terminates TCP 443 and multiplexes
-// by SNI (ssl_preread) to loopback core backends, plus an HTTPS subscription
-// endpoint served under a dedicated front SNI.
+// by SNI (ssl_preread) to loopback core backends, plus HTTP and HTTPS
+// subscription endpoints.
 package nginx
 
 import (
@@ -20,11 +20,16 @@ type Route struct {
 	Backend int
 }
 
-// Subscription is the plain-HTTP endpoint nginx serves on port 80.
-// No TLS — self-signed certs for bare IPs are rejected by all clients.
-// The 32-hex token path provides access obscurity.
+// Subscription configures the subscription serving block.
+// HTTP:80 is always included as a fallback.
+// HTTPS on HTTPSPort is included when CertFile/KeyFile are provided.
 type Subscription struct {
-	BundleFile string // static file served at /s/<token>
+	Dir         string // root directory (e.g. /etc/ngray) served by nginx
+	BundleFile  string // filename within Dir for /s/<token>  — base64 URI list
+	SingboxFile string // filename within Dir for /sb/<token> — sing-box JSON
+	CertFile    string // absolute PEM cert path (empty → HTTP-only)
+	KeyFile     string // absolute PEM key path
+	HTTPSPort   int    // HTTPS listening port; 0 = HTTP-only
 }
 
 type Config struct {
@@ -91,18 +96,53 @@ events {
 	fmt.Fprintf(&b, "%d default_server;\n        server_name _;\n        return 444;\n    }\n", c.Sink)
 
 	if c.Sub != nil {
+		// HTTP :80 — plain-text fallback, always available
 		fmt.Fprintf(&b, `
     server {
         listen 80;
         server_name _;
+        root %s;
         location ~ ^/s/ {
             default_type text/plain;
-            alias %s;
+            try_files /%s =404;
         }
         location / { return 444; }
     }
-`, c.Sub.BundleFile)
+`, c.Sub.Dir, c.Sub.BundleFile)
+
+		// HTTPS on configured port — self-signed TLS; clients must enable skip-cert-verify
+		if c.Sub.CertFile != "" && c.Sub.KeyFile != "" && c.Sub.HTTPSPort > 0 {
+			fmt.Fprintf(&b, `
+    server {
+        listen %d ssl;
+        ssl_certificate     %s;
+        ssl_certificate_key %s;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+        ssl_session_cache   shared:SUB:10m;
+        ssl_session_timeout 10m;
+        server_name _;
+        root %s;
+        location ~ ^/s/ {
+            default_type text/plain;
+            try_files /%s =404;
+        }
+`, c.Sub.HTTPSPort, c.Sub.CertFile, c.Sub.KeyFile, c.Sub.Dir, c.Sub.BundleFile)
+
+			if c.Sub.SingboxFile != "" {
+				fmt.Fprintf(&b, `        location ~ ^/sb/ {
+            default_type application/json;
+            try_files /%s =404;
+        }
+`, c.Sub.SingboxFile)
+			}
+			b.WriteString(`        location / { return 444; }
+    }
+`)
+		}
 	}
+
 	b.WriteString("}\n")
 	return b.String()
 }

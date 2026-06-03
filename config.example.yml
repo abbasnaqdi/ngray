@@ -121,7 +121,11 @@ cores:
 
 subscription:
   enabled: true
-  front_sni: www.kernel.org  # kept for reference; subscription now served via HTTP:80
+  # https_port: the port nginx uses for HTTPS subscription (default 2053).
+  # Change this if 2053 is already in use on your server.
+  https_port: 2053
+  # front_sni is optional — added as a DNS SAN to the self-signed cert.
+  front_sni: www.kernel.org
 
 client:
   # Control exactly what gets printed after setup and in `ngray client links`.
@@ -137,4 +141,4 @@ client:
   #   fptn         — fptn connection token (if fptn.enabled: true)
   #   mieru        — mieru client JSON config (if mieru.enabled: true)
   #   amneziawg    — AmneziaWG .conf file (if amneziawg.enabled: true)
-  emit: [vless, anytls, hysteria2, tuic, shadowtls, singbox_json, subscription, qr]
+  emit: [vless, anytls, hysteria2, tuic, shadowtls, singbox_json, subscription, mieru, amneziawg, fptn]

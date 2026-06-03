@@ -129,8 +129,9 @@ type Fptn struct {
 }
 
 type Subscription struct {
-	Enabled  bool   `yaml:"enabled"`
-	FrontSNI string `yaml:"front_sni"`
+	Enabled   bool   `yaml:"enabled"`
+	FrontSNI  string `yaml:"front_sni,omitempty"`
+	HTTPSPort int    `yaml:"https_port,omitempty"` // HTTPS sub port (default 2053)
 }
 
 type Client struct {
@@ -168,8 +169,8 @@ func Default() *Config {
 			Mieru:     MieruCore{Enabled: true, Port: 14000, User: "ngray"},
 			AmneziaWG: AmneziaWGCore{Enabled: true, Port: 51820},
 		},
-		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org"},
-		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "singbox_json", "subscription", "qr"}},
+		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org", HTTPSPort: 2053},
+		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "tuic", "shadowtls", "singbox_json", "subscription", "mieru", "amneziawg", "fptn"}},
 	}
 }
 
@@ -219,9 +220,7 @@ func (c *Config) Validate() error {
 	if c.Nginx.Port <= 0 || c.Nginx.Port > 65535 {
 		return fmt.Errorf("nginx.port %d out of range", c.Nginx.Port)
 	}
-	if c.Subscription.Enabled && c.Subscription.FrontSNI == "" {
-		return fmt.Errorf("subscription.front_sni required when subscription enabled")
-	}
+	// FrontSNI is optional — used as a DNS SAN in the self-signed cert when set.
 	for _, r := range append(append([]Reality{}, c.Cores.Shoes.Reality...), c.Cores.Singbox.Reality...) {
 		if r.Proto != "" && r.Proto != "vless_vision" && r.Proto != "anytls" {
 			return fmt.Errorf("invalid reality proto %q for sni %s", r.Proto, r.SNI)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
@@ -32,21 +33,85 @@ func (AmneziaWG) Installed(_ context.Context, sys *system.Env) (string, bool) {
 	return "", false
 }
 
-// Install adds the Amnezia PPA and installs amneziawg + wireguard-tools.
+// Install installs AmneziaWG without a PPA.
+//
+//   - Userspace tools (awg, awg-quick): ubuntu zip from amnezia-vpn/amneziawg-tools
+//   - Kernel module: built via DKMS from the amnezia-vpn/amneziawg source archive
 func (AmneziaWG) Install(ctx context.Context, sys *system.Env) error {
-	if err := sys.AptInstall(ctx, "software-properties-common"); err != nil {
+	kver, _ := sys.Run(ctx, "uname", "-r")
+	if err := sys.AptInstall(ctx, "dkms", "build-essential", "linux-headers-"+kver, "wireguard-tools"); err != nil {
 		return err
 	}
-	if _, err := sys.Run(ctx, "add-apt-repository", "-y", "ppa:amnezia-vpn/amneziawg"); err != nil {
+	if err := awgInstallTools(ctx, sys); err != nil {
 		return err
 	}
-	if err := sys.AptUpdate(ctx); err != nil {
-		return err
-	}
-	if err := sys.AptInstall(ctx, "amneziawg", "wireguard-tools"); err != nil {
+	if err := awgInstallKernel(ctx, sys); err != nil {
 		return err
 	}
 	return os.MkdirAll(awgDir, 0o700)
+}
+
+// awgInstallTools extracts awg and awg-quick from the ubuntu zip release.
+func awgInstallTools(ctx context.Context, sys *system.Env) error {
+	url, err := sys.AssetURL(ctx, "amnezia-vpn/amneziawg-tools", `ubuntu.*amneziawg-tools\.zip`)
+	if err != nil {
+		return fmt.Errorf("find amneziawg-tools release: %w", err)
+	}
+	tmp := filepath.Join(os.TempDir(), "amneziawg-tools.zip")
+	if err := sys.Download(ctx, url, tmp); err != nil {
+		return err
+	}
+	for _, bin := range []string{"awg", "awg-quick"} {
+		if err := system.UnzipFile(tmp, bin, "/usr/local/bin/"+bin); err != nil {
+			return fmt.Errorf("extract %s: %w", bin, err)
+		}
+	}
+	return nil
+}
+
+// awgInstallKernel builds the amneziawg kernel module via DKMS from source.
+// amnezia-vpn/amneziawg has no binary releases; we fetch the source archive
+// and drive DKMS to compile it against the running kernel.
+func awgInstallKernel(ctx context.Context, sys *system.Env) error {
+	const (
+		srcURL  = "https://github.com/amnezia-vpn/amneziawg/archive/refs/heads/master.tar.gz"
+		modVer  = "ngray1"
+		dkmsDir = "/usr/src/amneziawg-" + modVer
+	)
+	tmp := filepath.Join(os.TempDir(), "amneziawg-src.tar.gz")
+	if err := sys.Download(ctx, srcURL, tmp); err != nil {
+		return fmt.Errorf("download amneziawg source: %w", err)
+	}
+	if err := os.MkdirAll(dkmsDir, 0o755); err != nil {
+		return err
+	}
+	// GitHub archives have a top-level directory prefix; strip it.
+	if out, err := sys.Run(ctx, "tar", "-xzf", tmp, "--strip-components=1", "-C", dkmsDir); err != nil {
+		return fmt.Errorf("extract amneziawg source: %w — %s", err, out)
+	}
+
+	// Write dkms.conf. The module source lives in the src/ sub-directory.
+	dkmsConf := `PACKAGE_NAME="amneziawg"
+PACKAGE_VERSION="` + modVer + `"
+BUILT_MODULE_NAME[0]="amneziawg"
+DEST_MODULE_LOCATION[0]="/kernel/net/wireguard/"
+AUTOINSTALL="yes"
+MAKE[0]="make -C src KERNELDIR=/lib/modules/${kernelver}/build"
+CLEAN="make -C src KERNELDIR=/lib/modules/${kernelver}/build clean"
+`
+	if err := os.WriteFile(filepath.Join(dkmsDir, "dkms.conf"), []byte(dkmsConf), 0o644); err != nil {
+		return err
+	}
+
+	kver, _ := sys.Run(ctx, "uname", "-r")
+	_, _ = sys.Run(ctx, "dkms", "add", "amneziawg/"+modVer) // idempotent
+	if out, err := sys.Run(ctx, "dkms", "build", "amneziawg/"+modVer, "-k", kver); err != nil {
+		return fmt.Errorf("dkms build amneziawg: %w — %s", err, out)
+	}
+	if out, err := sys.Run(ctx, "dkms", "install", "amneziawg/"+modVer, "-k", kver); err != nil {
+		return fmt.Errorf("dkms install amneziawg: %w — %s", err, out)
+	}
+	return nil
 }
 
 func (AmneziaWG) Build(p *Plan) (Result, error) {

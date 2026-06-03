@@ -66,14 +66,25 @@ endpoints automatically.
 - Not a redirector
 - Bonus: target IP near VPS; OCSP stapling (`dl.google.com` is excellent)
 
-## Subscribe URL
+## Subscribe URLs
 
-Served via **plain HTTP on port 80** (`http://SERVER-IP/s/TOKEN`).
+Three URLs are produced per deployment:
 
-TLS is not used because there is no way to obtain a browser-trusted certificate
-for a bare IP address without a domain. Self-signed certs cause client errors.
-Plain HTTP is standard practice among proxy subscription servers; the 32-hex
-token path provides access obscurity.
+| URL | Format | Notes |
+|-----|--------|-------|
+| `https://SERVER-IP:8443/s/TOKEN` | base64 URI list (primary) | self-signed cert — enable skip-cert-verify in client |
+| `https://SERVER-IP:8443/sb/TOKEN` | sing-box JSON outbound list | import directly into husi/exclave/sing-box |
+| `http://SERVER-IP/s/TOKEN` | base64 URI list (fallback) | plain HTTP, no cert required |
 
-If you add a `domain:` to the config in a future version, Let's Encrypt
-HTTPS will be used automatically.
+**Certificate:** a self-signed ECDSA P-256 cert is generated at setup time with
+the server IP as both CN and IP SAN. nginx serves it on port 8443. Since it is
+self-signed (not CA-signed), clients must enable skip-cert-verify / insecure mode
+when importing the HTTPS subscription URL. The cert is regenerated automatically
+if the server IP changes.
+
+**Sing-box JSON** endpoint (`/sb/`) is served only over HTTPS and contains a
+proper dual-outbound structure for ShadowTLS (shadowtls + shadowsocks chained)
+and full xhttp transport for VLESS+XHTTP entries.
+
+If a `front_sni` is set in config, it is added as a DNS SAN to the certificate
+(useful if DNS resolves the SNI hostname to the server IP).

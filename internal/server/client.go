@@ -32,7 +32,6 @@ type emitSet map[string]bool
 func buildEmitSet(cfg *config.Config) emitSet {
 	s := make(emitSet)
 	if cfg == nil {
-		// no config — show everything
 		s["all"] = true
 		return s
 	}
@@ -46,14 +45,13 @@ func (s emitSet) allows(key string) bool {
 	return s["all"] || s[key]
 }
 
-// RenderClient writes share links, QR codes and notes filtered by cfg.Client.Emit.
-func RenderClient(w io.Writer, st *state.State, cfg *config.Config, qr bool) error {
+// RenderClient writes share links and notes filtered by cfg.Client.Emit.
+func RenderClient(w io.Writer, st *state.State, cfg *config.Config) error {
 	if st.Deploy == nil || (len(st.Deploy.Endpoints) == 0 && len(st.Deploy.Notes) == 0) {
 		return fmt.Errorf("no deployment found — run `ngray server setup` first")
 	}
 	d := st.Deploy
 	emit := buildEmitSet(cfg)
-	showQR := qr && emit.allows("qr")
 
 	for _, e := range d.Endpoints {
 		key, ok := protoKey[e.Proto]
@@ -65,9 +63,6 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config, qr bool) err
 			continue
 		}
 		fmt.Fprintf(w, "\n%-36s %s\n", e.Tag, uri)
-		if showQR {
-			fmt.Fprintln(w, links.QR(uri))
-		}
 	}
 
 	if emit.allows("singbox_json") {
@@ -86,9 +81,14 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config, qr bool) err
 	}
 
 	if d.SubURL != "" && emit.allows("subscription") {
-		fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n  %s\n", d.SubURL)
-		if showQR {
-			fmt.Fprintln(w, links.QR(d.SubURL))
+		fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
+		fmt.Fprintf(w, "  HTTPS  %s\n", d.SubURL)
+		fmt.Fprintf(w, "         (enable skip-cert-verify / insecure in your client)\n")
+		if d.SubSingboxURL != "" {
+			fmt.Fprintf(w, "  sbJSON %s\n", d.SubSingboxURL)
+		}
+		if d.SubHTTPURL != "" {
+			fmt.Fprintf(w, "  HTTP   %s\n", d.SubHTTPURL)
 		}
 	}
 	return nil

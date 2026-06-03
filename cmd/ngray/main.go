@@ -28,7 +28,7 @@ Usage:
   ngray                  launch the interactive TUI
   ngray server setup     provision/repair the server from config.yml
   ngray server status    show core versions, services and listening ports
-  ngray client links     print share links, QR codes and the subscribe URL
+  ngray client links     print share links and the subscribe URL
   ngray sni test [host…] test SNIs for REALITY fitness and latency
   ngray sni discover     find REALITY SNIs hosted near your server
   ngray scan             scan CDN edges for reachable IPs
@@ -181,7 +181,7 @@ func cmdServer(args []string) error {
 			return fmt.Errorf("load state: %w", err)
 		}
 		cfg, _ := config.LoadOrDefault(config.Path())
-		return server.RenderClient(os.Stdout, st, cfg, false)
+		return server.RenderClient(os.Stdout, st, cfg)
 	case "status":
 		return cmdStatus()
 	default:
@@ -189,13 +189,12 @@ func cmdServer(args []string) error {
 	}
 }
 
-// cmdClient renders share links, QR codes and the subscribe URL.
+// cmdClient renders share links and the subscribe URL.
 func cmdClient(args []string) error {
 	st, err := state.Load(state.Path())
 	if err != nil {
 		return err
 	}
-	qr := len(args) > 1 && args[1] == "--qr"
 	if len(args) > 0 && args[0] == "singbox" {
 		b, err := server.SingboxJSON(st)
 		if err != nil {
@@ -205,7 +204,7 @@ func cmdClient(args []string) error {
 		return nil
 	}
 	cfg, _ := config.LoadOrDefault(config.Path())
-	return server.RenderClient(os.Stdout, st, cfg, qr)
+	return server.RenderClient(os.Stdout, st, cfg)
 }
 
 // cmdUpdate updates cores, or ngray itself with --self.

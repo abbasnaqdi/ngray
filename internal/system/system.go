@@ -100,6 +100,27 @@ func (e *Env) AptInstall(ctx context.Context, pkgs ...string) error {
 	return nil
 }
 
+// HTTPGet fetches url and returns the response body.
+func (e *Env) HTTPGet(url string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := e.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+	return b, nil
+}
+
 // PublicIP returns the server's public IPv4, trying several echo services.
 func (e *Env) PublicIP(ctx context.Context) string {
 	for _, url := range []string{"https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"} {
