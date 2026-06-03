@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -30,16 +31,18 @@ func (e *Env) IsActive(ctx context.Context, svc string) bool {
 	return e.OK(ctx, "systemctl", "is-active", "--quiet", svc)
 }
 
-// BinVersion runs `<cmd> version` (then `--version`) and extracts a semver.
+// BinVersion runs common version flags and extracts a semver.
+// It ignores the exit code and checks both stdout and stderr because tools
+// vary: some exit non-zero for `version`, some write to stderr.
 func (e *Env) BinVersion(ctx context.Context, cmd string) string {
 	if !e.Which(cmd) {
 		return ""
 	}
-	for _, flag := range []string{"version", "--version"} {
-		if out, err := e.Run(ctx, cmd, flag); err == nil {
-			if v := ParseSemver(out); v != "" {
-				return v
-			}
+	for _, flag := range []string{"--version", "version", "-v", "-V"} {
+		c := exec.CommandContext(ctx, cmd, flag)
+		out, _ := c.CombinedOutput() // combined: captures both stdout and stderr
+		if v := ParseSemver(string(out)); v != "" {
+			return v
 		}
 	}
 	return ""

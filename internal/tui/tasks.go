@@ -131,10 +131,15 @@ func taskSNI(ctx context.Context, emit func(string)) error {
 
 func taskStatus(ctx context.Context, emit func(string)) error {
 	sys := system.New()
+	cfg, _ := config.LoadOrDefault(config.Path())
 	for _, c := range cores.Registry() {
 		ver, ok := c.Installed(ctx, sys)
 		if !ok {
-			emit(dimStyle.Render(pad(c.Name(), 12) + "not installed"))
+			if cfg != nil && !c.Enabled(cfg) {
+				emit(dimStyle.Render(pad(c.Name(), 12) + "disabled  (enable in config.yml)"))
+			} else {
+				emit(errStyle.Render(pad(c.Name(), 12)) + dimStyle.Render("not installed — run server setup"))
+			}
 			continue
 		}
 		latest, _ := sys.LatestVersion(ctx, c.Repo())
