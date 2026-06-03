@@ -60,9 +60,13 @@ func (f *Firewall) Apply(ctx context.Context, r Rules) error {
 		}
 	}
 	// UDP port redirects live in the NAT table's PREROUTING chain (IPv4 only).
+	// Only add a rule that isn't already present, or every deploy appends a
+	// duplicate.
 	for _, rd := range r.Redirects {
-		f.sys.OK(ctx, "iptables", "-t", "nat", "-C", "PREROUTING",
-			"-p", "udp", "--dport", strconv.Itoa(rd.From), "-j", "REDIRECT", "--to-port", strconv.Itoa(rd.To))
+		if f.sys.OK(ctx, "iptables", "-t", "nat", "-C", "PREROUTING",
+			"-p", "udp", "--dport", strconv.Itoa(rd.From), "-j", "REDIRECT", "--to-port", strconv.Itoa(rd.To)) {
+			continue
+		}
 		_, _ = f.sys.Run(ctx, "iptables", "-t", "nat", "-A", "PREROUTING",
 			"-p", "udp", "--dport", strconv.Itoa(rd.From), "-j", "REDIRECT", "--to-port", strconv.Itoa(rd.To))
 	}

@@ -133,10 +133,10 @@ func (Xray) Build(p *Plan) (Result, error) {
 	// not yet installed.
 	if cdn := p.Cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
 		if fileExists(cdn.CertFile) && fileExists(cdn.KeyFile) {
-			tlsSettings := func(sni string) map[string]any {
+			tlsSettings := func(sni string, alpn []string) map[string]any {
 				return map[string]any{
 					"serverName":   sni,
-					"alpn":         []string{"h2", "http/1.1"},
+					"alpn":         alpn,
 					"certificates": []map[string]any{{"certificateFile": cdn.CertFile, "keyFile": cdn.KeyFile}},
 				}
 			}
@@ -155,7 +155,9 @@ func (Xray) Build(p *Plan) (Result, error) {
 					"settings": vlessClient(uid),
 					"streamSettings": map[string]any{
 						"network": "ws", "security": "tls",
-						"tlsSettings": tlsSettings(cdn.Domain),
+						// WS runs over HTTP/1.1 only — offering h2 in ALPN makes TLS
+						// negotiate HTTP/2 and the WebSocket upgrade fails with 400.
+						"tlsSettings": tlsSettings(cdn.Domain, []string{"http/1.1"}),
 						"wsSettings":  map[string]any{"path": path, "host": cdn.Domain},
 					},
 				})
@@ -178,7 +180,7 @@ func (Xray) Build(p *Plan) (Result, error) {
 					"settings": vlessClient(uid),
 					"streamSettings": map[string]any{
 						"network": "xhttp", "security": "tls",
-						"tlsSettings":   tlsSettings(alt),
+						"tlsSettings":   tlsSettings(alt, []string{"h2", "http/1.1"}),
 						"xhttpSettings": map[string]any{"path": path, "mode": "auto", "host": alt},
 					},
 				})
