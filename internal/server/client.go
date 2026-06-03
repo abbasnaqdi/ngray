@@ -26,6 +26,9 @@ func RenderClient(w io.Writer, st *state.State, qr bool) error {
 	}
 	if d.SubURL != "" {
 		fmt.Fprintf(w, "\nSubscribe link (add once in v2rayN/nekoray/husi — auto-updates):\n  %s\n", d.SubURL)
+		if qr {
+			fmt.Fprintln(w, links.QR(d.SubURL))
+		}
 	}
 	return nil
 }

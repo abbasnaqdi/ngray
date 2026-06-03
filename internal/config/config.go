@@ -72,7 +72,24 @@ type Xray struct {
 }
 
 type Shoes struct {
-	Reality []Reality `yaml:"reality"`
+	Reality   []Reality  `yaml:"reality"`
+	TUIC      *ShoesTUIC `yaml:"tuic,omitempty"`
+	Hysteria2 *ShoesHy2  `yaml:"hysteria2,omitempty"`
+}
+
+// ShoesTUIC is a TUIC v5 inbound served by the shoes binary (Rust implementation).
+type ShoesTUIC struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port"`
+	SNI     string `yaml:"sni"`
+}
+
+// ShoesHy2 is a Hysteria2 inbound served by the shoes binary (Rust implementation).
+type ShoesHy2 struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port"`
+	SNI     string `yaml:"sni"`
+	Obfs    string `yaml:"obfs"`
 }
 
 type Singbox struct {
@@ -135,6 +152,8 @@ func Default() *Config {
 				Reality: []Reality{
 					{SNI: "www.debian.org", Proto: "anytls"},
 				},
+				TUIC:      &ShoesTUIC{Enabled: true, Port: 36712, SNI: "www.rust-lang.org"},
+				Hysteria2: &ShoesHy2{Enabled: true, Port: 36713, SNI: "www.rust-lang.org", Obfs: "salamander"},
 			},
 			Singbox: Singbox{
 				Reality: []Reality{

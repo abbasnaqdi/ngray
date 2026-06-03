@@ -11,6 +11,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
+	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
@@ -84,6 +85,7 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 	if d.SubURL != "" {
 		emit("")
 		emit("subscribe: " + okStyle.Render(d.SubURL))
+		emit(links.QR(d.SubURL))
 	}
 	return nil
 }

@@ -33,9 +33,10 @@ cores:
       - {sni: jquery.com}           # widely cached/whitelisted CDN ✓
       - {sni: react.dev}            # Vercel-backed, clean TLS ✓
 
-  # ── shoes (loopback 12000-12999, behind nginx:443) ───────────────
+  # ── shoes (loopback 12000-12999, behind nginx:443 + independent QUIC) ──
   # Rust TLS → different ClientHello fingerprint from xray/sing-box.
   # AnyTLS pads records to defeat length-based DPI (proto: anytls).
+  # TUIC + Hysteria2 via shoes = Rust QUIC stack, distinct from Go binaries.
   shoes:
     reality:
       - {sni: www.debian.org,       proto: anytls}
@@ -44,6 +45,15 @@ cores:
       - {sni: gradle.org,           proto: anytls}
       - {sni: ubuntu.com,           proto: vless_vision}
       - {sni: canonical.com,        proto: anytls}
+    tuic:
+      enabled: true
+      port: 36712       # Rust TUIC — different stack from singbox TUIC (Go)
+      sni: www.rust-lang.org
+    hysteria2:
+      enabled: true
+      port: 36713       # Rust Hysteria2 — different stack from standalone hy2 (Go)
+      sni: www.rust-lang.org
+      obfs: salamander
 
   # ── sing-box (loopback 13000-13999, behind nginx:443) ────────────
   # Best client support: husi, exclave, nekobox use sing-box natively.

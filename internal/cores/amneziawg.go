@@ -64,6 +64,8 @@ func (AmneziaWG) Build(p *Plan) (Result, error) {
 	}
 	// Obfuscation params (stable across runs)
 	ob := awgObfs(p.St)
+	ctx := context.Background()
+	iface := defaultIface(ctx, p.Sys)
 
 	serverConf := fmt.Sprintf(`[Interface]
 PrivateKey = %s
@@ -78,8 +80,8 @@ H1 = %d
 H2 = %d
 H3 = %d
 H4 = %d
-PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o %s -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o %s -j MASQUERADE
 
 [Peer]
 PublicKey = %s
@@ -88,6 +90,7 @@ AllowedIPs = 10.66.66.2/32
 		srvPriv, a.Port,
 		ob.Jc, ob.Jmin, ob.Jmax, ob.S1, ob.S2,
 		ob.H1, ob.H2, ob.H3, ob.H4,
+		iface, iface,
 		cliPub,
 	)
 
@@ -120,7 +123,6 @@ PersistentKeepalive = 25
 	if err := p.Sys.WriteFile(awgDir+"/wg0.conf", []byte(serverConf), 0o600); err != nil {
 		return Result{}, err
 	}
-	ctx := context.Background()
 	if err := p.Sys.EnableNow(ctx, "awg-quick@wg0"); err != nil {
 		_ = p.Sys.Restart(ctx, "awg-quick@wg0")
 	}
