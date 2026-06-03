@@ -301,10 +301,15 @@ func restartServices(ctx context.Context, sys *system.Env, cfg *config.Config, o
 		if !core.Enabled(cfg) {
 			continue
 		}
-		if err := sys.EnableNow(ctx, core.Service()); err != nil {
-			_ = sys.Restart(ctx, core.Service())
+		// Enable for boot, then ALWAYS restart to load the freshly written
+		// config. `enable --now` is a no-op on an already-running service, so
+		// relying on it alone leaves running cores on their previous config.
+		_ = sys.EnableNow(ctx, core.Service())
+		if err := sys.Restart(ctx, core.Service()); err != nil {
+			o.log("warning: restart %s: %v", core.Service(), err)
+		} else {
+			o.log("service %s restarted", core.Service())
 		}
-		o.log("service %s up", core.Service())
 	}
 }
 

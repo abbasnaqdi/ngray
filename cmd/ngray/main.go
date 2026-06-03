@@ -309,8 +309,13 @@ func cmdDomainCert(args []string) error {
 	if _, err := tls.LoadX509KeyPair(args[0], args[1]); err != nil {
 		return fmt.Errorf("cert/key invalid or do not match: %w", err)
 	}
-	cfg, _ := config.LoadOrDefault(config.Path())
-	cdn := cfg.Cores.Xray.CDN
+	// Cert paths come from the default CDN config; override from on-disk config
+	// only if it loads cleanly (never depend on it — this command must work even
+	// when config.yml is absent or invalid).
+	cdn := config.Default().Cores.Xray.CDN
+	if cfg, err := config.LoadOrDefault(config.Path()); err == nil && cfg.Cores.Xray.CDN != nil {
+		cdn = cfg.Cores.Xray.CDN
+	}
 	if cdn == nil || cdn.CertFile == "" || cdn.KeyFile == "" {
 		return fmt.Errorf("no cores.xray.cdn cert paths configured")
 	}

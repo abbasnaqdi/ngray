@@ -133,11 +133,25 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 		if cfg.Cores.Singbox.ShadowTLS != nil {
 			cfg.Cores.Singbox.ShadowTLS.SNI = best
 		}
-		if cfg.Subscription.FrontSNI == "" || force {
+		// front_sni MUST be a dedicated SNI that is not one of the nginx route
+		// SNIs — nginx maps each route SNI to exactly one backend, so a collision
+		// makes config.yml fail validation on reload (setup uses the in-memory
+		// cfg, so it deploys, but every later reload errors). Always pull a fresh
+		// budget SNI (never a route SNI); fall back to best only if exhausted.
+		if fs := pop.next(); fs != "" {
+			cfg.Subscription.FrontSNI = fs
+		} else {
 			cfg.Subscription.FrontSNI = best
 		}
 	}
+	_ = force
 
+	// Catch a generated config that would fail on reload (setup runs off the
+	// in-memory cfg, so an invalid file would otherwise go unnoticed until a
+	// later command reloads it).
+	if err := cfg.Validate(); err != nil {
+		log("auto-SNI: WARNING generated config is invalid: %v", err)
+	}
 	if err := config.Save(configPath, cfg); err != nil {
 		log("auto-SNI: could not save config.yml: %v", err)
 		return nil
