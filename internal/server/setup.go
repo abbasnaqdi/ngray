@@ -123,7 +123,13 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		for k, v := range res.Notes {
 			notes[k] = v
 		}
-		o.log("configured %s (%d endpoint(s))", core.Name(), len(res.Endpoints))
+		// mieru/AmneziaWG/fptn deliver an importable config via Notes rather than
+		// share-link endpoints; count those so the log doesn't read "0".
+		if n := len(res.Endpoints); n > 0 {
+			o.log("configured %s (%d endpoint(s))", core.Name(), n)
+		} else {
+			o.log("configured %s (%d client config(s) — see menu 2)", core.Name(), len(res.Notes))
+		}
 	}
 
 	if len(cfg.Cores.Singbox.Reality) > 0 {
