@@ -28,8 +28,7 @@ func (Xray) Enabled(c *config.Config) bool {
 }
 
 func (Xray) Installed(ctx context.Context, sys *system.Env) (string, bool) {
-	v := sys.BinVersion(ctx, "xray")
-	return v, v != ""
+	return detect(ctx, sys, "xray")
 }
 
 // Install pulls the Xray-core release zip directly and unpacks the binary,

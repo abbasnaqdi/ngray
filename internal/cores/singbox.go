@@ -20,8 +20,7 @@ func (Singbox) Service() string               { return "sing-box" }
 func (Singbox) Enabled(c *config.Config) bool { return len(c.Cores.Singbox.Reality) > 0 }
 
 func (Singbox) Installed(ctx context.Context, sys *system.Env) (string, bool) {
-	v := sys.BinVersion(ctx, "sing-box")
-	return v, v != ""
+	return detect(ctx, sys, "sing-box")
 }
 
 func (Singbox) Install(ctx context.Context, sys *system.Env) error {

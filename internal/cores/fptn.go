@@ -28,8 +28,7 @@ func (Fptn) Service() string               { return "fptn-server" }
 func (Fptn) Enabled(c *config.Config) bool { return c.Cores.Fptn.Enabled }
 
 func (Fptn) Installed(ctx context.Context, sys *system.Env) (string, bool) {
-	v := sys.BinVersion(ctx, "fptn-server")
-	return v, v != ""
+	return detect(ctx, sys, "fptn-server")
 }
 
 func (Fptn) Install(ctx context.Context, sys *system.Env) error {

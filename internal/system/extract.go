@@ -36,14 +36,29 @@ func UntarFile(archive, suffix, dest string) error {
 		if h.Typeflag != tar.TypeReg || !strings.HasSuffix(h.Name, suffix) {
 			continue
 		}
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return err
-		}
-		defer out.Close()
-		_, err = io.Copy(out, tr)
+		return writeBinary(dest, tr)
+	}
+}
+
+// writeBinary streams r into a sibling temp file then atomically renames it
+// over dest. The rename swaps the directory entry, so overwriting a binary
+// that is currently running never hits ETXTBSY ("text file busy").
+func writeBinary(dest string, r io.Reader) error {
+	tmp := dest + ".new"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
 		return err
 	}
+	if _, err := io.Copy(out, r); err != nil { //nolint:gosec // trusted release archive
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dest)
 }
 
 // UnzipFile extracts the first zip member whose name ends with suffix to dest
@@ -64,13 +79,7 @@ func UnzipFile(archive, suffix, dest string) error {
 			return err
 		}
 		defer rc.Close()
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return err
-		}
-		defer out.Close()
-		_, err = io.Copy(out, rc) //nolint:gosec // trusted release archive
-		return err
+		return writeBinary(dest, rc)
 	}
 	return fmt.Errorf("no member ending %q in %s", suffix, archive)
 }

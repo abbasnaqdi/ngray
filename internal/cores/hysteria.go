@@ -22,8 +22,7 @@ func (Hysteria) Service() string               { return "hysteria-server" }
 func (Hysteria) Enabled(c *config.Config) bool { return c.Cores.Hysteria2.Enabled }
 
 func (Hysteria) Installed(ctx context.Context, sys *system.Env) (string, bool) {
-	v := sys.BinVersion(ctx, "hysteria")
-	return v, v != ""
+	return detect(ctx, sys, "hysteria")
 }
 
 func (Hysteria) Install(ctx context.Context, sys *system.Env) error {
