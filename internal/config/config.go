@@ -31,11 +31,28 @@ type Nginx struct {
 }
 
 type Cores struct {
-	Xray      Xray      `yaml:"xray"`
-	Shoes     Shoes     `yaml:"shoes"`
-	Singbox   Singbox   `yaml:"singbox"`
-	Hysteria2 Hysteria2 `yaml:"hysteria2"`
-	Fptn      Fptn      `yaml:"fptn"`
+	Xray      Xray          `yaml:"xray"`
+	Shoes     Shoes         `yaml:"shoes"`
+	Singbox   Singbox       `yaml:"singbox"`
+	Hysteria2 Hysteria2     `yaml:"hysteria2"`
+	Fptn      Fptn          `yaml:"fptn"`
+	Mieru     MieruCore     `yaml:"mieru"`
+	AmneziaWG AmneziaWGCore `yaml:"amneziawg"`
+}
+
+// MieruCore is an independent TCP/UDP multiplexed tunnel with no recognisable
+// protocol pattern. Best against ML-based detection (China/Russia).
+type MieruCore struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port"` // public TCP
+	User    string `yaml:"user"`
+}
+
+// AmneziaWGCore is obfuscated WireGuard (Russia-grade). Adds random junk
+// headers and salt to every UDP packet so WG traffic is unidentifiable.
+type AmneziaWGCore struct {
+	Enabled bool `yaml:"enabled"`
+	Port    int  `yaml:"port"` // public UDP
 }
 
 // Reality is one REALITY config bound to a single whitelisted SNI.
@@ -128,6 +145,8 @@ func Default() *Config {
 			},
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087}, SNI: "www.rust-lang.org", Obfs: "salamander"},
 			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org"},
+			Mieru:     MieruCore{Enabled: false, Port: 14000, User: "nguser"},
+			AmneziaWG: AmneziaWGCore{Enabled: false, Port: 51820},
 		},
 		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org"},
 		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "singbox_json", "subscription", "qr"}},

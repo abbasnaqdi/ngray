@@ -43,7 +43,7 @@ type Core interface {
 
 // Registry is the ordered set of supported cores.
 func Registry() []Core {
-	return []Core{Xray{}, Shoes{}, Singbox{}, Hysteria{}, Fptn{}}
+	return []Core{Xray{}, Shoes{}, Singbox{}, Hysteria{}, Fptn{}, Mieru{}, AmneziaWG{}}
 }
 
 // realityKeys returns (or generates and persists) the REALITY keypair for a core.

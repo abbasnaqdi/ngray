@@ -267,6 +267,12 @@ func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st 
 	if stl := cfg.Cores.Singbox.ShadowTLS; stl != nil && stl.Enabled {
 		r.TCP = append(r.TCP, stl.Port)
 	}
+	if cfg.Cores.Mieru.Enabled {
+		r.TCP = append(r.TCP, cfg.Cores.Mieru.Port)
+	}
+	if cfg.Cores.AmneziaWG.Enabled {
+		r.UDP = append(r.UDP, cfg.Cores.AmneziaWG.Port)
+	}
 	if cfg.Cores.Fptn.Enabled {
 		r.TCP = append(r.TCP, cfg.Cores.Fptn.Port)
 	}

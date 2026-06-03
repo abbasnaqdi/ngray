@@ -1,4 +1,4 @@
-VERSION ?= 0.2.0
+VERSION ?= 0.3.0
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    := $(shell date -u +%Y-%m-%d)
 PKG     := github.com/abbasnaqdi/ng-ray/internal/version

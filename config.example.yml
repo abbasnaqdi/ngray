@@ -86,6 +86,21 @@ cores:
     port: 2096
     sni: www.rust-lang.org
 
+  # ── mieru (multiplexed tunnel, no protocol fingerprint) ───────────
+  # Resistant to ML-based detection used in China / Russia.
+  # Client: NekoBox or Exclave imports the JSON config printed after setup.
+  mieru:
+    enabled: false
+    port: 14000
+    user: nguser
+
+  # ── amneziawg (obfuscated WireGuard) ─────────────────────────────
+  # Adds random junk headers to every WG packet — undetectable to DPI.
+  # Standard in Russia. Client: AmneziaVPN app imports the .conf printed after setup.
+  amneziawg:
+    enabled: false
+    port: 51820
+
 subscription:
   enabled: true
   front_sni: www.kernel.org    # subscribe URL: https://<server-IP>/s/<token>
