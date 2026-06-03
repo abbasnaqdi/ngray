@@ -151,11 +151,6 @@ func (m *Model) cdnState(name string) *CDNState {
 	return nil
 }
 
-// startRow returns the cursor row index for the [ Start Scan ] button.
-func (m Model) startRow() int {
-	return 1 + len(m.cdnStates)
-}
-
 func (m Model) Init() tea.Cmd {
 	return tickCmd()
 }
@@ -240,10 +235,24 @@ func (m Model) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// routeRows returns the number of rows the route section occupies.
+// Row 0 = Direct, Row 1 = Via Proxy (when proxy is configured).
+func (m Model) routeRows() int {
+	if m.proxyAddr != "" {
+		return 2
+	}
+	return 1
+}
+
+// cdnBaseRow is the first cursor row used by CDN checkboxes.
+func (m Model) cdnBaseRow() int { return m.routeRows() }
+
+func (m Model) startRow() int { return m.cdnBaseRow() + len(m.cdnStates) }
+
 func (m Model) configKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	totalRows := m.startRow() + 1 // route + CDNs + start button
+	totalRows := m.startRow() + 1
 	switch key.String() {
-	case "ctrl+c", "q", "Q":
+	case "ctrl+c", "q", "Q", "esc":
 		return m, tea.Quit
 
 	case "up", "k":
@@ -255,28 +264,25 @@ func (m Model) configKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 
-	case " ": // toggle
+	case " ", "enter":
 		switch {
-		case m.cursor == 0: // route row
-			m.useProxy = !m.useProxy
-		case m.cursor >= 1 && m.cursor <= len(m.cdnStates): // CDN rows
-			m.cdnStates[m.cursor-1].Enabled = !m.cdnStates[m.cursor-1].Enabled
-		}
-
-	case "enter":
-		m.screen = ScreenScan
-		m.startTime = time.Now()
-		if m.OnStart != nil {
-			iface := m.selIface
-			if m.useProxy {
-				iface = network.Interface{} // empty = no binding, proxy handles routing
+		case m.cursor == 0: // Direct row
+			m.useProxy = false
+		case m.proxyAddr != "" && m.cursor == 1: // Via proxy row
+			m.useProxy = true
+		case m.cursor >= m.cdnBaseRow() && m.cursor < m.startRow(): // CDN rows
+			m.cdnStates[m.cursor-m.cdnBaseRow()].Enabled = !m.cdnStates[m.cursor-m.cdnBaseRow()].Enabled
+		case m.cursor == m.startRow(): // [ Start Scan ]
+			m.screen = ScreenScan
+			m.startTime = time.Now()
+			if m.OnStart != nil {
+				iface := m.selIface
+				if m.useProxy {
+					iface = network.Interface{}
+				}
+				go m.OnStart(m.useProxy, iface, m.EnabledCDNs())
 			}
-			enabled := m.EnabledCDNs()
-			go m.OnStart(m.useProxy, iface, enabled)
 		}
-
-	case "esc":
-		return m, tea.Quit
 	}
 	return m, nil
 }

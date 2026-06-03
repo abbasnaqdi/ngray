@@ -61,7 +61,15 @@ cores:
     tuic:
       enabled: true
       port: 36711            # public UDP; firewall opened automatically
-      sni: www.rust-lang.org # SNI for self-signed cert (any valid domain)
+      sni: www.rust-lang.org
+
+    # ShadowTLS v3 — mimics a real TLS handshake to SNI, then tunnels
+    # Shadowsocks inside. Looks like normal TLS to DPI. TCP, own public port.
+    # ss:// with shadow-tls plugin; works in husi / exclave / nekobox.
+    shadowtls:
+      enabled: true
+      port: 2443             # public TCP; firewall opened automatically
+      sni: www.rust-lang.org # real TLS handshake target (must be a live TLS site)
 
   # ── hysteria2  (independent QUIC/UDP, NOT behind nginx) ──────────
   # Salamander obfs turns QUIC into patternless random UDP bytes.

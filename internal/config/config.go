@@ -59,15 +59,24 @@ type Shoes struct {
 }
 
 type Singbox struct {
-	Reality []Reality    `yaml:"reality"`
-	TUIC    *SingboxTUIC `yaml:"tuic,omitempty"`
+	Reality   []Reality         `yaml:"reality"`
+	TUIC      *SingboxTUIC      `yaml:"tuic,omitempty"`
+	ShadowTLS *SingboxShadowTLS `yaml:"shadowtls,omitempty"`
 }
 
 // SingboxTUIC configures a TUIC v5 inbound inside sing-box (independent UDP port).
 type SingboxTUIC struct {
 	Enabled bool   `yaml:"enabled"`
 	Port    int    `yaml:"port"`
-	SNI     string `yaml:"sni"` // SNI for the self-signed TLS cert
+	SNI     string `yaml:"sni"`
+}
+
+// SingboxShadowTLS configures a ShadowTLS v3 inbound wrapping Shadowsocks.
+// Mimics a real TLS handshake to SNI; tunnels traffic through inner Shadowsocks.
+type SingboxShadowTLS struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port"` // public TCP port (own listener, NOT behind nginx)
+	SNI     string `yaml:"sni"`  // real TLS handshake target
 }
 
 type Hysteria2 struct {
@@ -114,7 +123,8 @@ func Default() *Config {
 					{SNI: "docs.python.org", Proto: "anytls"},
 					{SNI: "www.nginx.org", Proto: "vless_vision"},
 				},
-				TUIC: &SingboxTUIC{Enabled: true, Port: 36711, SNI: "www.rust-lang.org"},
+				TUIC:      &SingboxTUIC{Enabled: true, Port: 36711, SNI: "www.rust-lang.org"},
+				ShadowTLS: &SingboxShadowTLS{Enabled: true, Port: 2443, SNI: "www.rust-lang.org"},
 			},
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087}, SNI: "www.rust-lang.org", Obfs: "salamander"},
 			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org"},

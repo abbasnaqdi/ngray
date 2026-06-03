@@ -4,7 +4,7 @@ DATE    := $(shell date -u +%Y-%m-%d)
 PKG     := github.com/abbasnaqdi/ng-ray/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
-.PHONY: build install test vet fmt lint check e2e dist release clean
+.PHONY: build install test vet fmt lint check e2e dist release package clean
 
 # Platforms shipped in a release. linux/amd64 is what `ngray update --self` pulls.
 PLATFORMS := linux/amd64 linux/arm64
@@ -62,6 +62,18 @@ release: dist
 	gh release create v$(VERSION) dist/* \
 		--title "ng-ray v$(VERSION)" --generate-notes
 
+# Build a ready-to-run package for the current CPU in pkg/ngray-<version>/.
+# Contains: the binary + config.example.yml + snis/candidates.sni.
+# Copy the folder to any Linux server and run: cp config.example.yml config.yml && sudo ./ngray
+package: build
+	$(eval PKGDIR := pkg/ngray-$(VERSION))
+	@rm -rf pkg && mkdir -p $(PKGDIR)/snis
+	@cp ngray           $(PKGDIR)/ngray
+	@cp config.example.yml $(PKGDIR)/config.example.yml
+	@cp snis/candidates.sni $(PKGDIR)/snis/candidates.sni
+	@echo "package ready: $(PKGDIR)/"
+	@ls -lh $(PKGDIR)/
+
 clean:
 	rm -f ngray
-	rm -rf dist
+	rm -rf dist pkg

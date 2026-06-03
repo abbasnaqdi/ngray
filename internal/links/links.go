@@ -3,6 +3,7 @@
 package links
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/url"
@@ -76,6 +77,15 @@ func (e Endpoint) URI() string {
 		q.Set("sni", e.SNI)
 		q.Set("allow_insecure", "1")
 		return fmt.Sprintf("tuic://%s:%s@%s?%s#%s", e.UUID, e.TUICPass, host, q.Encode(), frag(e.Tag))
+	case "shadowtls":
+		// SIP022 Shadowsocks URI with shadow-tls plugin.
+		// AuthPass = inner Shadowsocks password; Obfs = SS method; Password = ShadowTLS password.
+		userInfo := base64.StdEncoding.EncodeToString([]byte(e.Obfs + ":" + e.AuthPass))
+		q.Set("plugin", "shadow-tls")
+		q.Set("shadow-tls-password", e.Password)
+		q.Set("shadow-tls-sni", e.SNI)
+		q.Set("shadow-tls-version", "3")
+		return fmt.Sprintf("ss://%s@%s?%s#%s", userInfo, host, q.Encode(), frag(e.Tag))
 	}
 	return ""
 }

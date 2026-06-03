@@ -80,14 +80,33 @@ func (m Model) viewConfig() string {
 	}
 	b.WriteString("\n")
 
-	// ── Row 0: Route selection ────────────────────────────────────────────────
-	rowRoute := renderConfigRow(m, 0, routeLabel(m))
-	b.WriteString(rowRoute + "\n\n")
+	// ── Rows 0-1: Route selection (two separate selectable rows) ─────────────
+	b.WriteString(dim.Render("  Route:") + "\n")
+	directCheck := gray.Render("[ ]")
+	proxyCheck := gray.Render("[ ]")
+	if !m.useProxy {
+		directCheck = green.Render("[✓]")
+	} else {
+		proxyCheck = green.Render("[✓]")
+	}
+	phyName := m.selIface.Name
+	if phyName == "" {
+		phyName = "default"
+	}
+	b.WriteString(renderConfigRow(m, 0,
+		fmt.Sprintf("  %s  Direct via %s  %s", directCheck, bold.Render(phyName),
+			dim.Render("— tests access from this network"))) + "\n")
+	if m.proxyAddr != "" {
+		b.WriteString(renderConfigRow(m, 1,
+			fmt.Sprintf("  %s  Via proxy %s  %s", proxyCheck, bold.Render(m.proxyAddr),
+				dim.Render("— full global discovery"))) + "\n")
+	}
+	b.WriteString("\n")
 
-	// ── Rows 1..N: CDN checkboxes ─────────────────────────────────────────────
+	// ── CDN checkboxes ────────────────────────────────────────────────────────
 	b.WriteString(dim.Render("  CDNs to scan:") + "\n")
 	for i, s := range m.cdnStates {
-		row := 1 + i
+		row := m.cdnBaseRow() + i
 		check := green.Render("[✓]")
 		if !s.Enabled {
 			check = gray.Render("[ ]")
@@ -98,10 +117,8 @@ func (m Model) viewConfig() string {
 			total += n
 		}
 		label := fmt.Sprintf("  %s  %-12s  %d ranges · %s IPs  →  %s",
-			check,
-			cdnLabel(s.Provider.Name),
-			len(s.Provider.Ranges),
-			fmtNum(total),
+			check, cdnLabel(s.Provider.Name),
+			len(s.Provider.Ranges), fmtNum(total),
 			dim.Render(s.Provider.OutputFile),
 		)
 		b.WriteString(renderConfigRow(m, row, label) + "\n")
@@ -109,34 +126,14 @@ func (m Model) viewConfig() string {
 
 	// ── Start button ──────────────────────────────────────────────────────────
 	b.WriteString("\n")
-	startLabel := fmt.Sprintf("  %s", bold.Render("[ Start Scan ]"))
-	b.WriteString(renderConfigRow(m, m.startRow(), startLabel) + "\n")
+	b.WriteString(renderConfigRow(m, m.startRow(), "  "+bold.Render("[ Start Scan ]")) + "\n")
 
 	// ── Footer ────────────────────────────────────────────────────────────────
 	b.WriteString("\n")
 	b.WriteString(sep(w))
-	b.WriteString(dim.Render("  [↑↓ / j k] navigate   [space] toggle   [enter] start   [q] quit") + "\n")
+	b.WriteString(dim.Render("  ↑/↓  navigate   space/enter  select/toggle   q  quit") + "\n")
 
 	return b.String()
-}
-
-func routeLabel(m Model) string {
-	directCheck := gray.Render("[ ]")
-	proxyCheck := gray.Render("[ ]")
-	if !m.useProxy {
-		directCheck = green.Render("[✓]")
-	} else {
-		proxyCheck = green.Render("[✓]")
-	}
-
-	phyName := m.selIface.Name
-	if phyName == "" {
-		phyName = "default"
-	}
-	direct := fmt.Sprintf("%s Direct (%s) — tests Iran ISP access", directCheck, phyName)
-	proxy := fmt.Sprintf("%s Via proxy (%s) — full global discovery", proxyCheck, dim.Render(m.proxyAddr))
-
-	return fmt.Sprintf("  %s    %s", direct, proxy)
 }
 
 // renderConfigRow renders a row with a cursor indicator when selected.

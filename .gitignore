@@ -4,6 +4,7 @@
 # Build artifacts
 /ngray
 /dist/
+/pkg/
 
 # Runtime state and generated output
 proxy-state.json

@@ -118,6 +118,9 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	if cfg.Subscription.Enabled {
 		token := st.EnsureSubToken()
+		// Always regenerate the sub cert so the IP SAN stays current.
+		// Fast operation (ECDSA keygen + self-sign); stable across re-runs.
+		_ = sys.Remove(sub.CertPath)
 		if err := sys.GenSelfSigned(cfg.Subscription.FrontSNI, sub.CertPath, sub.KeyPath, ip); err != nil {
 			return nil, err
 		}
@@ -257,6 +260,9 @@ func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st 
 	}
 	if t := cfg.Cores.Singbox.TUIC; t != nil && t.Enabled {
 		r.UDP = append(r.UDP, t.Port)
+	}
+	if stl := cfg.Cores.Singbox.ShadowTLS; stl != nil && stl.Enabled {
+		r.TCP = append(r.TCP, stl.Port)
 	}
 	if cfg.Cores.Fptn.Enabled {
 		r.TCP = append(r.TCP, cfg.Cores.Fptn.Port)

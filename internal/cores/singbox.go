@@ -26,7 +26,8 @@ func (Singbox) Repo() string    { return "SagerNet/sing-box" }
 func (Singbox) Service() string { return "sing-box" }
 func (Singbox) Enabled(c *config.Config) bool {
 	return len(c.Cores.Singbox.Reality) > 0 ||
-		(c.Cores.Singbox.TUIC != nil && c.Cores.Singbox.TUIC.Enabled)
+		(c.Cores.Singbox.TUIC != nil && c.Cores.Singbox.TUIC.Enabled) ||
+		(c.Cores.Singbox.ShadowTLS != nil && c.Cores.Singbox.ShadowTLS.Enabled)
 }
 
 func (Singbox) Installed(ctx context.Context, sys *system.Env) (string, bool) {
@@ -117,6 +118,41 @@ func (Singbox) Build(p *Plan) (Result, error) {
 		res.Endpoints = append(res.Endpoints, links.Endpoint{
 			Tag: links.Tag("sb", "tuic", t.SNI), Proto: "tuic",
 			Server: p.IP, Port: t.Port, SNI: t.SNI, UUID: uid, TUICPass: pw,
+		})
+	}
+
+	if stl := p.Cfg.Cores.Singbox.ShadowTLS; stl != nil && stl.Enabled {
+		cid := id("singbox", "shadowtls", stl.SNI)
+		ssPort, err := p.Alloc.Backend("singbox", cid+"|ss")
+		if err != nil {
+			return Result{}, err
+		}
+		stlPW := p.St.Secret(cid+"|stl", func() state.Secret {
+			return state.Secret{Password: state.RandHex(16)}
+		}).Password
+		ssPW := p.St.Secret(cid+"|ss", func() state.Secret {
+			return state.Secret{Password: state.NewPassword(20)}
+		}).Password
+		inbounds = append(inbounds,
+			map[string]any{
+				"type": "shadowtls", "listen": "0.0.0.0", "listen_port": stl.Port,
+				"version": 3, "password": stlPW,
+				"handshake": map[string]any{"server": stl.SNI, "server_port": 443},
+				"detour":    "ss-stl-inner",
+			},
+			map[string]any{
+				"type": "shadowsocks", "tag": "ss-stl-inner",
+				"listen": "127.0.0.1", "listen_port": ssPort,
+				"method": "aes-128-gcm", "password": ssPW,
+			},
+		)
+		res.Endpoints = append(res.Endpoints, links.Endpoint{
+			Tag:    links.Tag("sb", "shadowtls", stl.SNI),
+			Proto:  "shadowtls",
+			Server: p.IP, Port: stl.Port, SNI: stl.SNI,
+			Password: stlPW,         // shadow-tls outer password
+			AuthPass: ssPW,          // shadowsocks inner password
+			Obfs:     "aes-128-gcm", // shadowsocks method (reused as cipher field)
 		})
 	}
 
