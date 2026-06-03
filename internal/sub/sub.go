@@ -17,8 +17,15 @@ const (
 )
 
 // URL is the fixed subscribe link users add to their client.
-func URL(frontSNI, token string) string {
-	return fmt.Sprintf("https://%s/s/%s", frontSNI, token)
+// It uses the server IP (not the front SNI) because frontSNI resolves to the
+// real domain's servers, not the user's VPS. Clients fetch this URL through
+// the proxy or directly via IP.
+func URL(serverIP string, port int, token string) string {
+	host := serverIP
+	if port != 443 {
+		host = fmt.Sprintf("%s:%d", serverIP, port)
+	}
+	return fmt.Sprintf("https://%s/s/%s", host, token)
 }
 
 // WriteBundle persists the base64 subscription content served at /s/<token>.

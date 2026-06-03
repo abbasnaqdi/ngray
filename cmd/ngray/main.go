@@ -340,7 +340,8 @@ func cmdFirewall(args []string) error {
 	if err != nil {
 		return err
 	}
-	rules := rulesFromConfig(c)
+	st, _ := state.Load(state.Path())
+	rules := rulesFromConfig(c, st)
 
 	fmt.Println("Firewall plan (default-drop inbound):")
 	for _, line := range rules.Plan() {
@@ -360,8 +361,13 @@ func cmdFirewall(args []string) error {
 	return nil
 }
 
-func rulesFromConfig(c *config.Config) firewall.Rules {
+func rulesFromConfig(c *config.Config, st *state.State) firewall.Rules {
 	r := firewall.Rules{TCP: []int{c.Nginx.Port}}
+	if st != nil {
+		for _, p := range st.Ports {
+			r.TCP = append(r.TCP, p)
+		}
+	}
 	if c.Cores.Hysteria2.Enabled {
 		r.UDP = append(r.UDP, c.Cores.Hysteria2.Port)
 	}

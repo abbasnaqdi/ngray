@@ -110,22 +110,25 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		o.log("configured %s (%d endpoint(s))", core.Name(), len(res.Endpoints))
 	}
 
+	if len(cfg.Cores.Singbox.Reality) > 0 {
+		notes["sing-box client config"] = "To print the client JSON config for sing-box, run: ngray client singbox"
+	}
 	ngCfg := nginx.Config{Port: cfg.Nginx.Port, Sink: ports.HTTPSink, Routes: routes}
 	deploy := &state.Deploy{Endpoints: endpoints, Notes: notes}
 
 	if cfg.Subscription.Enabled {
 		token := st.EnsureSubToken()
-		if err := sys.GenSelfSigned(cfg.Subscription.FrontSNI, sub.CertPath, sub.KeyPath); err != nil {
+		if err := sys.GenSelfSigned(cfg.Subscription.FrontSNI, sub.CertPath, sub.KeyPath, ip); err != nil {
 			return nil, err
 		}
 		if err := sub.WriteBundle(sys, links.Subscription(endpoints)); err != nil {
 			return nil, err
 		}
 		ngCfg.Sub = &nginx.Subscription{
-			FrontSNI: cfg.Subscription.FrontSNI, Token: token, HTTPSPort: sub.HTTPSPort,
+			FrontSNI: cfg.Subscription.FrontSNI, ServerIP: ip, Token: token, HTTPSPort: sub.HTTPSPort,
 			CertPath: sub.CertPath, KeyPath: sub.KeyPath, BundleFile: sub.BundleFile,
 		}
-		deploy.SubURL = sub.URL(cfg.Subscription.FrontSNI, token)
+		deploy.SubURL = sub.URL(ip, cfg.Nginx.Port, token)
 	}
 
 	if err := writeNginx(ctx, sys, ngCfg, o); err != nil {
@@ -141,7 +144,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	restartServices(ctx, sys, cfg, o)
 
-	if err := applyFirewall(ctx, sys, cfg, o); err != nil {
+	if err := applyFirewall(ctx, sys, cfg, st, o); err != nil {
 		o.log("warning: firewall: %v", err)
 	}
 
@@ -214,7 +217,17 @@ func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options)
 		return fmt.Errorf("nginx -t failed: %s", out)
 	}
 	o.log("nginx.conf written and validated")
-	return sys.Restart(ctx, "nginx")
+	if err := sys.Restart(ctx, "nginx"); err != nil {
+		if b, rerr := sys.ReadFile("/var/log/nginx/error.log"); rerr == nil {
+			lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+			if n := len(lines); n > 10 {
+				lines = lines[n-10:]
+			}
+			return fmt.Errorf("%w\nnginx error log:\n%s", err, strings.Join(lines, "\n"))
+		}
+		return err
+	}
+	return nil
 }
 
 func restartServices(ctx context.Context, sys *system.Env, cfg *config.Config, o Options) {
@@ -229,10 +242,18 @@ func restartServices(ctx context.Context, sys *system.Env, cfg *config.Config, o
 	}
 }
 
-func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, o Options) error {
+func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st *state.State, o Options) error {
 	r := firewall.Rules{TCP: []int{cfg.Nginx.Port}}
+	for _, p := range st.Ports {
+		r.TCP = append(r.TCP, p)
+	}
 	if cfg.Cores.Hysteria2.Enabled {
-		r.UDP = append(r.UDP, cfg.Cores.Hysteria2.Port)
+		h := cfg.Cores.Hysteria2
+		r.UDP = append(r.UDP, h.Port)
+		for _, ap := range h.AltPorts {
+			r.UDP = append(r.UDP, ap)
+			r.Redirects = append(r.Redirects, firewall.UDPRedirect{From: ap, To: h.Port})
+		}
 	}
 	if cfg.Cores.Fptn.Enabled {
 		r.TCP = append(r.TCP, cfg.Cores.Fptn.Port)

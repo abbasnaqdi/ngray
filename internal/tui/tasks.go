@@ -75,7 +75,9 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 	emit("")
 	emit(okStyle.Render(fmt.Sprintf("✓ %d endpoint(s)", len(d.Endpoints))))
 	for _, ep := range d.Endpoints {
-		emit(keyStyle.Render(ep.Tag) + "  " + ep.URI())
+		emit("")
+		emit(keyStyle.Render(ep.Tag))
+		emit("  " + ep.URI())
 	}
 	if d.SubURL != "" {
 		emit("")

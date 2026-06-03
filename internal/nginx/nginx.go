@@ -23,6 +23,7 @@ type Route struct {
 // Subscription is the HTTPS endpoint nginx serves under its own SNI.
 type Subscription struct {
 	FrontSNI   string
+	ServerIP   string // optional public IP to route to sub port
 	Token      string
 	HTTPSPort  int // loopback ssl listener
 	CertPath   string
@@ -47,6 +48,10 @@ func (c Config) Render() string {
 		fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", r.SNI, r.Backend)
 	}
 	if c.Sub != nil {
+		fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", `""`, c.Sub.HTTPSPort)
+		if c.Sub.ServerIP != "" {
+			fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", c.Sub.ServerIP, c.Sub.HTTPSPort)
+		}
 		fmt.Fprintf(&mapEntries, "        %-32s 127.0.0.1:%d;\n", c.Sub.FrontSNI, c.Sub.HTTPSPort)
 	}
 
@@ -70,7 +75,6 @@ events {
 		mapEntries.String(), "default", c.Sink)
 	fmt.Fprintf(&b, `    server {
         listen %d reuseport;
-        listen [::]:%d reuseport;
         proxy_pass $backend;
         ssl_preread on;
         proxy_connect_timeout 10s;
@@ -80,9 +84,11 @@ events {
     }
 }
 
-`, c.Port, c.Port)
+`, c.Port)
 
 	b.WriteString(`http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;

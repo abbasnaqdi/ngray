@@ -69,14 +69,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case taskLine:
 		m.lines = append(m.lines, string(msg))
-		m.vp.SetContent(joinLines(m.lines))
+		m.vp.SetContent(m.joinWrapped())
 		m.vp.GotoBottom()
 		return m, waitFor(m.taskCh)
 
 	case taskEnd:
 		m.running = false
 		m.taskErr = msg.err
-		m.vp.SetContent(joinLines(m.lines))
+		m.vp.SetContent(m.joinWrapped())
 		m.vp.GotoBottom()
 		return m, nil
 

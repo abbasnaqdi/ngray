@@ -28,6 +28,34 @@ var (
 
 func joinLines(lines []string) string { return strings.Join(lines, "\n") }
 
+// joinWrapped wraps each line at the viewport width so long URLs are never
+// clipped. Falls back to raw join when width is unknown.
+func (m Model) joinWrapped() string {
+	w := m.vp.Width
+	if w <= 0 {
+		return joinLines(m.lines)
+	}
+	out := make([]string, 0, len(m.lines))
+	for _, l := range m.lines {
+		out = append(out, wrapLine(l, w))
+	}
+	return joinLines(out)
+}
+
+func wrapLine(s string, width int) string {
+	if len(s) <= width {
+		return s
+	}
+	var b strings.Builder
+	for len(s) > width {
+		b.WriteString(s[:width])
+		b.WriteByte('\n')
+		s = s[width:]
+	}
+	b.WriteString(s)
+	return b.String()
+}
+
 func (m Model) View() string {
 	if m.screen == screenTask {
 		return m.viewTask()

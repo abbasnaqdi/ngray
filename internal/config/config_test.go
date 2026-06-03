@@ -18,7 +18,7 @@ func TestDuplicateSNIRejected(t *testing.T) {
 
 func TestSubscriptionCollisionRejected(t *testing.T) {
 	c := Default()
-	c.Subscription.FrontSNI = "rust-lang.org" // a core route SNI
+	c.Subscription.FrontSNI = "www.rust-lang.org" // a core route SNI
 	if err := c.Validate(); err == nil {
 		t.Fatal("expected subscription collision error")
 	}

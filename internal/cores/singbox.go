@@ -55,23 +55,26 @@ func (Singbox) Build(p *Plan) (Result, error) {
 			},
 		}
 		ep := links.Endpoint{Server: p.IP, Port: p.Cfg.Nginx.Port, SNI: r.SNI, PublicKey: pub, ShortID: sid}
+		epDirect := links.Endpoint{Server: p.IP, Port: port, SNI: r.SNI, PublicKey: pub, ShortID: sid}
 		if kind == "anytls" {
 			pw := password(p.St, cid)
 			inbounds = append(inbounds, map[string]any{
-				"type": "anytls", "listen": "127.0.0.1", "listen_port": port,
+				"type": "anytls", "listen": "0.0.0.0", "listen_port": port,
 				"users": []map[string]any{{"password": pw}}, "tls": tls,
 			})
 			ep.Proto, ep.Password, ep.Tag = "anytls", pw, links.Tag("sb", "anytls", r.SNI)
+			epDirect.Proto, epDirect.Password, epDirect.Tag = "anytls", pw, links.Tag("sb", "anytls-direct", r.SNI)
 		} else {
 			uid := uuid(p.St, cid)
 			inbounds = append(inbounds, map[string]any{
-				"type": "vless", "listen": "127.0.0.1", "listen_port": port,
+				"type": "vless", "listen": "0.0.0.0", "listen_port": port,
 				"users": []map[string]any{{"uuid": uid, "flow": "xtls-rprx-vision"}}, "tls": tls,
 			})
 			ep.Proto, ep.UUID, ep.Tag = "vless-vision", uid, links.Tag("sb", "vision", r.SNI)
+			epDirect.Proto, epDirect.UUID, epDirect.Tag = "vless-vision", uid, links.Tag("sb", "vision-direct", r.SNI)
 		}
 		res.Routes = append(res.Routes, nginx.Route{SNI: r.SNI, Backend: port})
-		res.Endpoints = append(res.Endpoints, ep)
+		res.Endpoints = append(res.Endpoints, ep, epDirect)
 	}
 
 	cfg := map[string]any{"inbounds": inbounds, "outbounds": []map[string]any{{"type": "direct"}}}

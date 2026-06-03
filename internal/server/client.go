@@ -16,7 +16,7 @@ func RenderClient(w io.Writer, st *state.State, qr bool) error {
 	}
 	d := st.Deploy
 	for _, e := range d.Endpoints {
-		fmt.Fprintf(w, "\n%-26s %s\n", e.Tag, e.URI())
+		fmt.Fprintf(w, "\n%s\n  %s\n", e.Tag, e.URI())
 		if qr {
 			fmt.Fprintln(w, links.QR(e.URI()))
 		}

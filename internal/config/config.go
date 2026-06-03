@@ -62,10 +62,11 @@ type Singbox struct {
 }
 
 type Hysteria2 struct {
-	Enabled bool   `yaml:"enabled"`
-	Port    int    `yaml:"port"`
-	SNI     string `yaml:"sni"`
-	Obfs    string `yaml:"obfs"`
+	Enabled  bool   `yaml:"enabled"`
+	Port     int    `yaml:"port"`
+	AltPorts []int  `yaml:"alt_ports,omitempty"` // extra UDP ports; firewall redirects them to Port
+	SNI      string `yaml:"sni"`
+	Obfs     string `yaml:"obfs"`
 }
 
 type Fptn struct {
@@ -90,24 +91,22 @@ func Default() *Config {
 		Cores: Cores{
 			Xray: Xray{
 				Reality: []Reality{
-					{SNI: "rust-lang.org", Flow: "vision"},
-					{SNI: "python.org", Flow: "vision"},
+					{SNI: "www.rust-lang.org", Flow: "vision"},
 				},
-				XHTTP: []XHTTP{{SNI: "pypi.org"}},
+				XHTTP: []XHTTP{{SNI: "www.python.org"}},
 			},
 			Shoes: Shoes{
 				Reality: []Reality{
-					{SNI: "www.rust-lang.org", Proto: "vless_vision"},
 					{SNI: "www.debian.org", Proto: "anytls"},
 				},
 			},
 			Singbox: Singbox{
 				Reality: []Reality{
-					{SNI: "www.python.org", Proto: "anytls"},
+					{SNI: "docs.python.org", Proto: "vless_vision"},
 				},
 			},
-			Hysteria2: Hysteria2{Enabled: true, Port: 443, SNI: "rust-lang.org", Obfs: "salamander"},
-			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "rust-lang.org"},
+			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087}, SNI: "www.rust-lang.org", Obfs: "salamander"},
+			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org"},
 		},
 		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org"},
 		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "singbox_json", "subscription", "qr"}},

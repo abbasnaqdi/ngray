@@ -2,6 +2,7 @@ package cores
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
@@ -62,8 +63,16 @@ func (Hysteria) Build(p *Plan) (Result, error) {
 	if err := p.Sys.WriteFile(hyDir+"/config.yaml", out, 0o644); err != nil {
 		return Result{}, err
 	}
-	return Result{Endpoints: []links.Endpoint{{
+	eps := []links.Endpoint{{
 		Tag: links.Tag("hy2", "", h.SNI), Proto: "hysteria2",
 		Server: p.IP, Port: h.Port, SNI: h.SNI, Obfs: h.Obfs, ObfsPass: obfs, AuthPass: auth,
-	}}}, nil
+	}}
+	// Alt ports share the same server config; the firewall redirects them to h.Port.
+	for _, ap := range h.AltPorts {
+		eps = append(eps, links.Endpoint{
+			Tag: fmt.Sprintf("hy2-alt%d", ap), Proto: "hysteria2",
+			Server: p.IP, Port: ap, SNI: h.SNI, Obfs: h.Obfs, ObfsPass: obfs, AuthPass: auth,
+		})
+	}
+	return Result{Endpoints: eps}, nil
 }

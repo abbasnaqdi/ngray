@@ -76,6 +76,9 @@ func (Shoes) Build(p *Plan) (Result, error) {
 		ep := links.Endpoint{
 			Server: p.IP, Port: p.Cfg.Nginx.Port, SNI: r.SNI, PublicKey: pub, ShortID: sid,
 		}
+		epDirect := links.Endpoint{
+			Server: p.IP, Port: port, SNI: r.SNI, PublicKey: pub, ShortID: sid,
+		}
 		if kind == "anytls" {
 			pw := password(p.St, cid)
 			reality["protocol"] = map[string]any{
@@ -83,18 +86,20 @@ func (Shoes) Build(p *Plan) (Result, error) {
 				"users": []map[string]any{{"name": "user", "password": pw}},
 			}
 			ep.Proto, ep.Password, ep.Tag = "anytls", pw, links.Tag("shoes", "anytls", r.SNI)
+			epDirect.Proto, epDirect.Password, epDirect.Tag = "anytls", pw, links.Tag("shoes", "anytls-direct", r.SNI)
 		} else {
 			uid := uuid(p.St, cid)
 			reality["vision"] = true
 			reality["protocol"] = map[string]any{"type": "vless", "user_id": uid, "udp_enabled": true}
 			ep.Proto, ep.UUID, ep.Tag = "vless-vision", uid, links.Tag("shoes", "vision", r.SNI)
+			epDirect.Proto, epDirect.UUID, epDirect.Tag = "vless-vision", uid, links.Tag("shoes", "vision-direct", r.SNI)
 		}
 		docs = append(docs, map[string]any{
-			"address":  "127.0.0.1:" + itoa(port),
+			"address":  "0.0.0.0:" + itoa(port),
 			"protocol": map[string]any{"type": "tls", "reality_targets": map[string]any{r.SNI: reality}},
 		})
 		res.Routes = append(res.Routes, nginx.Route{SNI: r.SNI, Backend: port})
-		res.Endpoints = append(res.Endpoints, ep)
+		res.Endpoints = append(res.Endpoints, ep, epDirect)
 	}
 	out, err := yaml.Marshal(docs)
 	if err != nil {

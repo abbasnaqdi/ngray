@@ -20,10 +20,13 @@ type Firewall struct {
 
 func New(sys *system.Env) *Firewall { return &Firewall{sys: sys, bin: "iptables"} }
 
+type UDPRedirect struct{ From, To int }
+
 type Rules struct {
-	SSHPort int
-	TCP     []int
-	UDP     []int
+	SSHPort   int
+	TCP       []int
+	UDP       []int
+	Redirects []UDPRedirect // PREROUTING REDIRECT: From port → To port (same host, UDP)
 }
 
 // Plan returns the human-readable rule list that Apply will install.
@@ -34,6 +37,9 @@ func (r Rules) Plan() []string {
 	}
 	for _, p := range r.UDP {
 		out = append(out, fmt.Sprintf("udp/%d → ACCEPT", p))
+	}
+	for _, rd := range r.Redirects {
+		out = append(out, fmt.Sprintf("udp/%d → REDIRECT udp/%d", rd.From, rd.To))
 	}
 	return append(out, "everything else → DROP")
 }
@@ -52,6 +58,13 @@ func (f *Firewall) Apply(ctx context.Context, r Rules) error {
 		if err := f.applyOne(ctx, r); err != nil {
 			return fmt.Errorf("%s: %w", bin, err)
 		}
+	}
+	// UDP port redirects live in the NAT table's PREROUTING chain (IPv4 only).
+	for _, rd := range r.Redirects {
+		f.sys.OK(ctx, "iptables", "-t", "nat", "-C", "PREROUTING",
+			"-p", "udp", "--dport", strconv.Itoa(rd.From), "-j", "REDIRECT", "--to-port", strconv.Itoa(rd.To))
+		_, _ = f.sys.Run(ctx, "iptables", "-t", "nat", "-A", "PREROUTING",
+			"-p", "udp", "--dport", strconv.Itoa(rd.From), "-j", "REDIRECT", "--to-port", strconv.Itoa(rd.To))
 	}
 	f.sys.OK(ctx, "netfilter-persistent", "save")
 	return nil
