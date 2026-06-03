@@ -28,14 +28,16 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 		log("auto-SNI: no candidates found at %s — using built-in defaults", candidatesPath)
 		return nil
 	}
-	log("auto-SNI: testing %d candidates for REALITY fitness (this takes ~60s)…", len(hosts))
+	log("auto-SNI: probing %d candidates for REALITY fitness…", len(hosts))
 
-	// 90s gives enough time even on distant VPS with high latency candidates.
-	tctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	// Sweep is a fast probe-then-measure pass at high concurrency, so the budget
+	// scales with the list: ~180s comfortably covers 1000+ candidates even on a
+	// distant VPS with many high-latency or dead hosts.
+	tctx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
 	var passed, failed int
-	results := sni.NewTester().TestAll(tctx, hosts, 48, func(r sni.Result) {
+	results := sni.NewTester().Sweep(tctx, hosts, 256, func(r sni.Result) {
 		if r.Fit() {
 			passed++
 			log("  ✓ %-36s %dms", r.Host, r.MedianMS)

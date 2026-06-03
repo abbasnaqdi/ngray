@@ -92,13 +92,13 @@ func (e Endpoint) URI() string {
 		}
 		return fmt.Sprintf("tuic://%s:%s@%s?%s#%s", e.UUID, e.TUICPass, host, q.Encode(), frag(e.Tag))
 	case "shadowtls":
-		// SIP022 Shadowsocks URI with shadow-tls plugin.
+		// SIP002 Shadowsocks URI with the shadow-tls plugin. The plugin options
+		// are a single semicolon-separated string under one "plugin" parameter
+		// (name;opt=val;…) — emitting separate shadow-tls-* query params is
+		// non-standard and SIP002 clients ignore it.
 		// AuthPass = inner Shadowsocks password; Obfs = SS method; Password = ShadowTLS password.
 		userInfo := base64.StdEncoding.EncodeToString([]byte(e.Obfs + ":" + e.AuthPass))
-		q.Set("plugin", "shadow-tls")
-		q.Set("shadow-tls-password", e.Password)
-		q.Set("shadow-tls-sni", e.SNI)
-		q.Set("shadow-tls-version", "3")
+		q.Set("plugin", "shadow-tls;version=3;host="+e.SNI+";password="+e.Password)
 		return fmt.Sprintf("ss://%s@%s?%s#%s", userInfo, host, q.Encode(), frag(e.Tag))
 	}
 	return ""

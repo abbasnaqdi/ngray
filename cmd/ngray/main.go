@@ -129,7 +129,9 @@ func cmdSNI(args []string) error {
 
 	t := sni.NewTester()
 	fmt.Printf("%-38s %-10s %s\n", "DOMAIN", "STATUS", "DETAILS")
-	results := t.TestAll(context.Background(), hosts, 24, func(r sni.Result) {
+	// Sweep scales to thousands of candidates: cheap probe across all, full
+	// latency/HTTP measurement only on the hosts that pass.
+	results := t.Sweep(context.Background(), hosts, 256, func(r sni.Result) {
 		switch r.Status {
 		case sni.StatusOK:
 			fmt.Printf("%-38s %-10s ms=%-4d (±%-3d) http=%-3d ip=%s\n", r.Host, r.Status, r.MedianMS, r.JitterMS, r.HTTPCode, r.IP)

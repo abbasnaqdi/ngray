@@ -20,11 +20,45 @@ func Subscription(eps []Endpoint) string {
 
 // SingboxJSON builds a sing-box client config with outbounds for every
 // endpoint. ShadowTLS produces two chained outbounds (shadowtls + shadowsocks).
+//
+// When there is more than one endpoint it also appends two outbound groups:
+//   - "auto"   (urltest): continuously health-checks every endpoint and routes
+//     through the lowest-latency one that responds, so endpoints blocked on the
+//     user's operator are skipped automatically.
+//   - "select" (selector): lets the user pin a specific endpoint, defaulting to
+//     "auto".
+//
+// This is what lets a client recover when only a subset of configs survive a
+// given network: no manual trial-and-error, the working ones win on their own.
 func SingboxJSON(eps []Endpoint) ([]byte, error) {
 	var outs []map[string]any
+	var tags []string
 	for _, e := range eps {
-		outs = append(outs, singboxOutbounds(e)...)
+		o := singboxOutbounds(e)
+		outs = append(outs, o...)
+		// e.Tag is the dialable outbound for every proto (for shadowtls the inner
+		// shadowsocks; its "-stl" detour is not health-checked directly).
+		if len(o) > 0 {
+			tags = append(tags, e.Tag)
+		}
 	}
+
+	if len(tags) > 1 {
+		outs = append(outs,
+			map[string]any{
+				"type": "urltest", "tag": "auto",
+				"outbounds": tags,
+				"url":       "https://www.gstatic.com/generate_204",
+				"interval":  "3m", "tolerance": 50,
+			},
+			map[string]any{
+				"type": "selector", "tag": "select",
+				"outbounds": append([]string{"auto"}, tags...),
+				"default":   "auto",
+			},
+		)
+	}
+
 	cfg := map[string]any{"outbounds": outs}
 	return json.MarshalIndent(cfg, "", "  ")
 }

@@ -18,14 +18,15 @@ func Ranked(results []Result) []Result {
 	return fit
 }
 
-// TestAll tests hosts concurrently, invoking onResult (if set) as each finishes.
-func (t *Tester) TestAll(ctx context.Context, hosts []string, workers int, onResult func(Result)) []Result {
+// mapHosts runs fn over hosts on a pool of workers, invoking onResult (if set)
+// as each finishes, and returns results in the original host order.
+func (t *Tester) mapHosts(ctx context.Context, hosts []string, workers int, fn func(context.Context, string) Result, onResult func(Result)) []Result {
 	if workers <= 0 {
-		workers = 16
+		workers = 256
 	}
 	in := make(chan string)
 	results := make([]Result, len(hosts))
-	idx := map[string]int{}
+	idx := make(map[string]int, len(hosts))
 	for i, h := range hosts {
 		idx[h] = i
 	}
@@ -37,7 +38,7 @@ func (t *Tester) TestAll(ctx context.Context, hosts []string, workers int, onRes
 		go func() {
 			defer wg.Done()
 			for h := range in {
-				r := t.Test(ctx, h)
+				r := fn(ctx, h)
 				mu.Lock()
 				results[idx[h]] = r
 				if onResult != nil {
@@ -59,4 +60,47 @@ func (t *Tester) TestAll(ctx context.Context, hosts []string, workers int, onRes
 	close(in)
 	wg.Wait()
 	return results
+}
+
+// TestAll tests hosts concurrently with the full per-host measurement
+// (fitness + latency samples + HTTP), invoking onResult as each finishes.
+func (t *Tester) TestAll(ctx context.Context, hosts []string, workers int, onResult func(Result)) []Result {
+	return t.mapHosts(ctx, hosts, workers, t.Test, onResult)
+}
+
+// Sweep scales fitness testing to thousands of candidates. It runs a single
+// cheap probe over every host at high concurrency, then re-measures only the
+// hosts that passed (latency samples + HTTP HEAD). Non-fit hosts cost one
+// handshake; the expensive sampling is spent only on survivors, so a 1000+
+// candidate list finishes in well under a minute.
+//
+// onResult fires once per host: immediately for hosts that fail the probe, and
+// after full measurement for hosts that pass.
+func (t *Tester) Sweep(ctx context.Context, hosts []string, workers int, onResult func(Result)) []Result {
+	probed := t.mapHosts(ctx, hosts, workers, t.probe, func(r Result) {
+		if !r.Fit() && onResult != nil {
+			onResult(r)
+		}
+	})
+
+	var fit []string
+	for _, r := range probed {
+		if r.Fit() {
+			fit = append(fit, r.Host)
+		}
+	}
+	measured := t.mapHosts(ctx, fit, workers, t.Test, onResult)
+
+	byHost := make(map[string]Result, len(hosts))
+	for _, r := range probed {
+		byHost[r.Host] = r
+	}
+	for _, r := range measured {
+		byHost[r.Host] = r
+	}
+	out := make([]Result, 0, len(hosts))
+	for _, h := range hosts {
+		out = append(out, byHost[h])
+	}
+	return out
 }

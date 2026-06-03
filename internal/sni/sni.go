@@ -51,6 +51,32 @@ type Tester struct {
 
 func NewTester() *Tester { return &Tester{Samples: 3, Timeout: 6 * time.Second} }
 
+// probe runs a single cheap fitness check: DNS + one strict TLS 1.3/X25519
+// handshake + h2 ALPN. It sets Status and IP (and MedianMS to the one handshake
+// time) but skips latency sampling and the HTTP HEAD. Used for the first pass of
+// Sweep over thousands of candidates; survivors are re-measured fully by Test.
+func (t *Tester) probe(ctx context.Context, host string) Result {
+	res := Result{Host: host}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+	if err != nil || len(ips) == 0 {
+		res.Status = StatusDNSFail
+		return res
+	}
+	res.IP = ips[0].String()
+	st, d, err := t.handshake(ctx, host, true)
+	if err != nil {
+		res.Status = t.classify(ctx, host, err)
+		return res
+	}
+	if st.NegotiatedProtocol != "h2" {
+		res.Status = StatusNoH2
+		return res
+	}
+	res.Status = StatusOK
+	res.MedianMS = int(d.Milliseconds())
+	return res
+}
+
 func (t *Tester) Test(ctx context.Context, host string) Result {
 	res := Result{Host: host}
 
