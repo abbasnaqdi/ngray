@@ -16,6 +16,14 @@ for s in shoes mieru-server awg-quick@wg0; do
   journalctl -u "$s" --no-pager -n 18 2>&1 | tail -18
   echo
 done
+echo "===== amneziawg kernel module / interface ====="
+echo "-- uname: $(uname -r)"
+echo "-- dkms status:"; dkms status 2>&1 | sed 's/^/   /'
+echo "-- lsmod amnezia:"; lsmod 2>/dev/null | grep -i amnezia | sed 's/^/   /' || echo "   (not loaded)"
+echo "-- modprobe amneziawg:"; modprobe amneziawg 2>&1 | sed 's/^/   /' && echo "   (modprobe ok)"
+echo "-- manual awg-quick up wg0:"; awg-quick up wg0 2>&1 | sed 's/^/   /'; awg-quick down wg0 >/dev/null 2>&1
+echo
+
 echo "===== cloudflare cdn note (cert installed?) ====="
 ls -l /etc/ngray/cf-origin.crt /etc/ngray/cf-origin.key 2>&1 | sed 's/^/  /'
 echo

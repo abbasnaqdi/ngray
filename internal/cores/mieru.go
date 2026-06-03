@@ -50,6 +50,7 @@ func (Mieru) Install(ctx context.Context, sys *system.Env) error {
 	if err := os.MkdirAll(mieruDir, 0o755); err != nil {
 		return err
 	}
+	ensureMitaUser(ctx, sys)
 	if err := writeMieruUnit(sys); err != nil {
 		return err
 	}
@@ -83,6 +84,14 @@ func writeMieruUnit(sys *system.Env) error {
 	return sys.WriteUnit("mieru-server.service", mieruUnit())
 }
 
+// ensureMitaUser creates the system user mita expects when it sets ownership on
+// its RPC socket; without it mita fails with `unknown user mita`.
+func ensureMitaUser(ctx context.Context, sys *system.Env) {
+	if !sys.OK(ctx, "id", "mita") {
+		_, _ = sys.Run(ctx, "useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "mita")
+	}
+}
+
 func (Mieru) Build(p *Plan) (Result, error) {
 	m := p.Cfg.Cores.Mieru
 	pw := p.St.Secret("mieru|pw", func() state.Secret {
@@ -106,6 +115,7 @@ func (Mieru) Build(p *Plan) (Result, error) {
 	// Refresh the unit every deploy so unit-level fixes (e.g. RuntimeDirectory)
 	// reach servers installed before the fix, then (re)start.
 	ctx := context.Background()
+	ensureMitaUser(ctx, p.Sys)
 	if err := writeMieruUnit(p.Sys); err == nil {
 		_ = p.Sys.DaemonReload(ctx)
 	}
