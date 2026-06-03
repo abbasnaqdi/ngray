@@ -13,6 +13,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/dnsval"
+	"github.com/abbasnaqdi/ng-ray/internal/domain"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
@@ -31,6 +32,7 @@ Usage:
   ngray client links     print share links and the subscribe URL
   ngray sni test [host…] test SNIs for REALITY fitness and latency
   ngray sni discover     find REALITY SNIs hosted near your server
+  ngray domain check [d] check if a domain is a working CF-fronted path here
   ngray scan             scan CDN edges for reachable IPs
   ngray dns validate     find DNS resolvers usable for DNS tunneling
   ngray dns doh [n]      benchmark public DoH resolvers
@@ -78,6 +80,8 @@ func run(args []string) error {
 		return cdnscan.Run()
 	case "dns":
 		return cmdDNS(args[1:])
+	case "domain":
+		return cmdDomain(args[1:])
 	case "regen":
 		return cmdRegen()
 	case "doctor":
@@ -241,6 +245,53 @@ func cmdDNS(args []string) error {
 	default:
 		return fmt.Errorf("usage: ngray dns validate|doh")
 	}
+}
+
+// cmdDomain checks whether a domain is a working Cloudflare-fronted path to this
+// server and prints scenario-aware advice ("be smart") before configs are made.
+func cmdDomain(args []string) error {
+	if len(args) == 0 || args[0] != "check" {
+		return fmt.Errorf("usage: ngray domain check <domain> [--ip SERVER_IP]")
+	}
+	rest := args[1:]
+	var dom string
+	for _, a := range rest {
+		if !strings.HasPrefix(a, "-") {
+			dom = a
+			break
+		}
+	}
+	if dom == "" {
+		return fmt.Errorf("no domain given: ngray domain check <domain> [--ip IP]")
+	}
+	ip := flagValue(rest, "--ip")
+	if ip == "" {
+		if st, err := state.Load(state.Path()); err == nil {
+			ip = st.IP
+		}
+	}
+	if ip == "" {
+		ip = system.New().PublicIP(context.Background())
+	}
+	if ip == "" {
+		return fmt.Errorf("could not determine server IP; pass --ip")
+	}
+
+	fmt.Printf("checking %s against origin %s …\n\n", dom, ip)
+	rep := domain.Check(context.Background(), dom, ip)
+	fmt.Printf("  domain        %s\n", rep.Domain)
+	fmt.Printf("  origin IP     %s\n", rep.ServerIP)
+	fmt.Printf("  resolves to   %s\n", dash(strings.Join(rep.ResolvedIPs, ", ")))
+	fmt.Printf("  cloudflare    %v\n", rep.ViaCloudflare)
+	if rep.EdgeStatus > 0 {
+		fmt.Printf("  edge status   HTTP %d (server: %s)\n", rep.EdgeStatus, dash(rep.ServerHeader))
+	}
+	fmt.Printf("  origin TLS    %v\n", rep.OriginTLSOK)
+	fmt.Printf("\n  verdict: %s\n", rep.Verdict)
+	for _, a := range rep.Advice {
+		fmt.Printf("    • %s\n", a)
+	}
+	return nil
 }
 
 // cmdDoctor diagnoses cores, nginx, BBR and foreign panels.
