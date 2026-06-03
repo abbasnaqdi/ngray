@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"net/http"
 	"sort"
 	"time"
 )
@@ -28,6 +29,16 @@ type Result struct {
 	Status   Status
 	MedianMS int
 	JitterMS int
+	HTTPCode int // HTTP/2 reachability of https://host/ (0 = unknown)
+}
+
+// Score ranks REALITY-fit SNIs: lower is better (latency + jitter penalty).
+// Non-fit results sort last.
+func (r Result) Score() int {
+	if !r.Fit() {
+		return 1 << 30
+	}
+	return r.MedianMS + r.JitterMS/2
 }
 
 // Fit reports whether the SNI passed every REALITY requirement.
@@ -73,7 +84,25 @@ func (t *Tester) Test(ctx context.Context, host string) Result {
 	res.Status = StatusOK
 	res.MedianMS = ms[len(ms)/2]
 	res.JitterMS = ms[len(ms)-1] - ms[0]
+	res.HTTPCode = t.httpCode(ctx, host)
 	return res
+}
+
+// httpCode does a best-effort HTTP/2 HEAD to confirm the SNI is a live site a
+// REALITY dest should mimic (an authentic 200/3xx looks more reasonable).
+func (t *Tester) httpCode(ctx context.Context, host string) int {
+	cctx, cancel := context.WithTimeout(ctx, t.Timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodHead, "https://"+host+"/", nil)
+	if err != nil {
+		return 0
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	resp.Body.Close()
+	return resp.StatusCode
 }
 
 // handshake performs a single TLS handshake; x25519 pins the group to X25519.

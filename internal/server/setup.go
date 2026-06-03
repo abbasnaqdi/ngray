@@ -13,6 +13,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/nginx"
 	"github.com/abbasnaqdi/ng-ray/internal/ports"
+	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/sub"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
@@ -70,6 +71,8 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	if err := ensureNginx(ctx, sys, o); err != nil {
 		return nil, err
 	}
+
+	validateSNIs(ctx, cfg, o)
 
 	plan := &cores.Plan{Cfg: cfg, St: st, Alloc: ports.NewAllocator(st), Sys: sys, IP: ip}
 	var routes []nginx.Route
@@ -145,6 +148,31 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		return nil, err
 	}
 	return deploy, nil
+}
+
+// validateSNIs runs the SNI tester over every REALITY SNI before configs are
+// generated, so the operator sees which destinations are REALITY-fit. It warns
+// rather than skips: server-side reachability is not an operator's whitelist.
+func validateSNIs(ctx context.Context, cfg *config.Config, o Options) {
+	seen := map[string]bool{}
+	var hosts []string
+	for _, s := range cfg.RouteSNIs() {
+		if !seen[s] {
+			seen[s] = true
+			hosts = append(hosts, s)
+		}
+	}
+	if len(hosts) == 0 {
+		return
+	}
+	o.log("validating %d REALITY SNI(s) via the sni tester…", len(hosts))
+	sni.NewTester().TestAll(ctx, hosts, 12, func(r sni.Result) {
+		if r.Fit() {
+			o.log("  ✓ %s  ok  (%dms)", r.Host, r.MedianMS)
+		} else {
+			o.log("  ! %s  %s — keeping (operator whitelist may differ)", r.Host, r.Status)
+		}
+	})
 }
 
 func ensureNginx(ctx context.Context, sys *system.Env, o Options) error {

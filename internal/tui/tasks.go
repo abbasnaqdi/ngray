@@ -104,14 +104,22 @@ func taskSNI(ctx context.Context, emit func(string)) error {
 	}
 	emit(dimStyle.Render(fmt.Sprintf("testing %d candidates — live", len(hosts))))
 	t := sni.NewTester()
-	t.TestAll(ctx, hosts, 24, func(r sni.Result) {
+	results := t.TestAll(ctx, hosts, 24, func(r sni.Result) {
 		if r.Status == sni.StatusOK {
-			emit(okStyle.Render("✓ "+pad(r.Host, 34)) + fmt.Sprintf("ms=%-4d (±%d)  %s", r.MedianMS, r.JitterMS, r.IP))
+			emit(okStyle.Render("✓ "+pad(r.Host, 34)) + fmt.Sprintf("ms=%-4d (±%-3d) http=%d", r.MedianMS, r.JitterMS, r.HTTPCode))
 		} else {
 			emit(dimStyle.Render("· " + pad(r.Host, 34) + string(r.Status)))
 		}
 	})
-	emit(okStyle.Render("done"))
+	ranked := sni.Ranked(results)
+	emit("")
+	emit(keyStyle.Render(fmt.Sprintf("best picks for REALITY (%d fit):", len(ranked))))
+	for i, r := range ranked {
+		if i >= 10 {
+			break
+		}
+		emit(fmt.Sprintf("  %2d. %s %dms (±%d)", i+1, pad(r.Host, 32), r.MedianMS, r.JitterMS))
+	}
 	return nil
 }
 

@@ -2,8 +2,21 @@ package sni
 
 import (
 	"context"
+	"sort"
 	"sync"
 )
+
+// Ranked returns the REALITY-fit results best-first (lowest latency + jitter).
+func Ranked(results []Result) []Result {
+	fit := make([]Result, 0, len(results))
+	for _, r := range results {
+		if r.Fit() {
+			fit = append(fit, r)
+		}
+	}
+	sort.Slice(fit, func(i, j int) bool { return fit[i].Score() < fit[j].Score() })
+	return fit
+}
 
 // TestAll tests hosts concurrently, invoking onResult (if set) as each finishes.
 func (t *Tester) TestAll(ctx context.Context, hosts []string, workers int, onResult func(Result)) []Result {

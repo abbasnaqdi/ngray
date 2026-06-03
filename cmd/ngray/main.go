@@ -125,14 +125,23 @@ func cmdSNI(args []string) error {
 
 	t := sni.NewTester()
 	fmt.Printf("%-38s %-10s %s\n", "DOMAIN", "STATUS", "DETAILS")
-	t.TestAll(context.Background(), hosts, 24, func(r sni.Result) {
+	results := t.TestAll(context.Background(), hosts, 24, func(r sni.Result) {
 		switch r.Status {
 		case sni.StatusOK:
-			fmt.Printf("%-38s %-10s ms=%-4d (±%d)  ip=%s\n", r.Host, r.Status, r.MedianMS, r.JitterMS, r.IP)
+			fmt.Printf("%-38s %-10s ms=%-4d (±%-3d) http=%-3d ip=%s\n", r.Host, r.Status, r.MedianMS, r.JitterMS, r.HTTPCode, r.IP)
 		default:
 			fmt.Printf("%-38s %-10s ip=%s\n", r.Host, r.Status, r.IP)
 		}
 	})
+
+	ranked := sni.Ranked(results)
+	fmt.Printf("\nbest picks for REALITY (%d fit):\n", len(ranked))
+	for i, r := range ranked {
+		if i >= 10 {
+			break
+		}
+		fmt.Printf("  %2d. %-32s %dms (±%d) http=%d\n", i+1, r.Host, r.MedianMS, r.JitterMS, r.HTTPCode)
+	}
 	return nil
 }
 
