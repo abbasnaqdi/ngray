@@ -3,6 +3,8 @@ package cores
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -11,7 +13,10 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 )
 
-const xrayConf = "/usr/local/etc/xray/config.json"
+const (
+	xrayConf = "/usr/local/etc/xray/config.json"
+	xrayBin  = "/usr/local/bin/xray"
+)
 
 type Xray struct{}
 
@@ -27,10 +32,31 @@ func (Xray) Installed(ctx context.Context, sys *system.Env) (string, bool) {
 	return v, v != ""
 }
 
+// Install pulls the Xray-core release zip directly and unpacks the binary,
+// avoiding the upstream install script's api.github.com calls that get
+// rate-limited (HTTP 403) on shared or filtered networks.
 func (Xray) Install(ctx context.Context, sys *system.Env) error {
-	_, err := sys.Run(ctx, "bash", "-c",
-		"curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh | bash")
-	return err
+	url, err := sys.AssetURL(ctx, "XTLS/Xray-core", `Xray-linux-64\.zip`)
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(os.TempDir(), "xray.zip")
+	if err := sys.Download(ctx, url, tmp); err != nil {
+		return err
+	}
+	if err := system.UnzipFile(tmp, "xray", xrayBin); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(xrayConf), 0o755); err != nil {
+		return err
+	}
+	if err := sys.WriteUnit("xray.service", unit("xray", xrayBin+" run -config "+xrayConf)); err != nil {
+		return err
+	}
+	if err := sys.DaemonReload(ctx); err != nil {
+		return err
+	}
+	return sys.EnableNow(ctx, "xray")
 }
 
 func (Xray) Build(p *Plan) (Result, error) {
