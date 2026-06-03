@@ -135,7 +135,12 @@ func (Singbox) Build(p *Plan) (Result, error) {
 		inbounds = append(inbounds,
 			map[string]any{
 				"type": "shadowtls", "listen": "0.0.0.0", "listen_port": stl.Port,
-				"version": 3, "password": stlPW,
+				"version": 3,
+				// ShadowTLS v3 requires a users array; the singular "password"
+				// field is only valid for v2. Supplying "password" with
+				// "version": 3 makes sing-box reject the whole config at startup,
+				// taking every sing-box inbound (anytls, vless, tuic) offline.
+				"users":     []map[string]any{{"name": "ngray", "password": stlPW}},
 				"handshake": map[string]any{"server": stl.SNI, "server_port": 443},
 				"detour":    "ss-stl-inner",
 			},

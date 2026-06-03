@@ -112,9 +112,12 @@ func singboxOutbounds(e Endpoint) []map[string]any {
 			"password": e.Password,
 			"tls":      map[string]any{"enabled": true, "server_name": e.SNI},
 		}
+		// server/server_port are nominal: sing-box dials through the detour, so
+		// the actual connection rides the shadowtls outer layer. Carry the real
+		// endpoint anyway so the config reads correctly and survives validation.
 		ssOut := map[string]any{
 			"type": "shadowsocks", "tag": e.Tag,
-			"server": "127.0.0.1", "server_port": 8388,
+			"server": e.Server, "server_port": e.Port,
 			"method": e.Obfs, "password": e.AuthPass,
 			"detour": stlTag,
 		}
