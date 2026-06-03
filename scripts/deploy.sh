@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Build the release locally, ship it to the ng-ray server, and (re)provision.
+#
+# Ships the release WITHOUT config.yml so `ngray server setup` auto-populates the
+# full SNI set from the SERVER's own vantage (the only correct vantage), then
+# deploys every core, the nginx SNI mux, the firewall and the subscription
+# bundle. proxy-state.json is preserved, so REALITY keys / UUIDs / the
+# subscription token stay stable and existing subscription clients keep working.
+#
+# Usage: bash scripts/deploy.sh [ssh-host]      (default host: your-host)
+set -euo pipefail
+
+HOST="${1:-your-host}"
+cd "$(dirname "$0")/.."
+
+echo "==> building package"
+make package >/dev/null
+tar -C pkg/release -czf /tmp/ngray-release.tgz ngray config.example.yml snis/candidates.sni
+
+echo "==> shipping to $HOST"
+scp -q /tmp/ngray-release.tgz "$HOST:/tmp/ngray-release.tgz"
+
+echo "==> provisioning on $HOST"
+ssh "$HOST" 'bash -s' <<'REMOTE'
+set -e
+echo "-- host: $(hostname)"
+printf -- "-- pubip: "; curl -s --max-time 6 https://api.ipify.org || true; echo
+mkdir -p /root/ngray/snis; cd /root/ngray
+ts=$(date +%Y%m%d-%H%M%S)
+[ -f proxy-state.json ] && cp proxy-state.json "proxy-state.json.bak-$ts" && echo "-- backed up proxy-state.json -> proxy-state.json.bak-$ts"
+[ -f config.yml ]       && cp config.yml       "config.yml.bak-$ts"       && echo "-- backed up config.yml -> config.yml.bak-$ts"
+tar -xzf /tmp/ngray-release.tgz -C /root/ngray
+chmod +x ngray
+echo "-- version: $(./ngray version)"
+rm -f config.yml   # force the fresh-install path so setup auto-populates the SNI pool
+echo "==> running: ngray server setup (auto-confirm installs)"
+./ngray server setup < /dev/null
+echo
+echo "==> SERVER STATUS"
+./ngray server status || true
+echo "==> generated SNIs in config.yml: $(grep -c 'sni:' config.yml 2>/dev/null || echo '?')"
+echo "==> client config links: $(./ngray client links 2>/dev/null | grep -cE '://' || echo '?')"
+REMOTE
+echo "==> done"
