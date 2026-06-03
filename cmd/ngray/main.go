@@ -30,6 +30,7 @@ Usage:
   ngray server status    show core versions, services and listening ports
   ngray client links     print share links, QR codes and the subscribe URL
   ngray sni test [host…] test SNIs for REALITY fitness and latency
+  ngray sni discover     find REALITY SNIs hosted near your server
   ngray scan             scan CDN edges for reachable IPs
   ngray dns validate     find DNS resolvers usable for DNS tunneling
   ngray dns doh [n]      benchmark public DoH resolvers
@@ -112,8 +113,11 @@ func cmdConfig(args []string) error {
 
 // cmdSNI tests SNI candidates for REALITY fitness.
 func cmdSNI(args []string) error {
+	if len(args) > 0 && args[0] == "discover" {
+		return cmdSNIDiscover(args[1:])
+	}
 	if len(args) == 0 || args[0] != "test" {
-		return fmt.Errorf("usage: ngray sni test [host…]")
+		return fmt.Errorf("usage: ngray sni test [host…] | ngray sni discover [--ref IP] [--blocks N]")
 	}
 	hosts := args[1:]
 	if len(hosts) == 0 {
@@ -387,6 +391,36 @@ func flagValue(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+// cmdSNIDiscover scans /24 blocks near the server for REALITY-fit SNIs.
+func cmdSNIDiscover(args []string) error {
+	ref := flagValue(args, "--ref")
+	if ref == "" {
+		ref = system.New().PublicIP(context.Background())
+	}
+	if ref == "" {
+		return fmt.Errorf("could not detect server IP; pass --ref IP")
+	}
+	blocks := 4
+	if v := flagValue(args, "--blocks"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			blocks = n
+		}
+	}
+	fmt.Printf("discovering REALITY SNIs near %s (±%d /24 blocks)…\n", ref, blocks)
+	found := sni.Discover(context.Background(), ref, blocks, 256, func(done, total int) {
+		fmt.Printf("\r  scanned %d/%d", done, total)
+	})
+	fmt.Printf("\r%-40s\n", " ")
+	fmt.Printf("found %d REALITY-fit domains (TLS1.3 + h2):\n", len(found))
+	for i, f := range found {
+		if i >= 30 {
+			break
+		}
+		fmt.Printf("  %-36s %dms  %s\n", f.Domain, f.LatencyMS, f.IP)
+	}
+	return nil
 }
 
 func candidatesPath() string {
