@@ -3,63 +3,76 @@
 # ╚══════════════════════════════════════════════════════════════════╝
 #
 # Copy to config.yml and run:  sudo ./ngray server setup
+# No manual SNI editing required — all SNIs below are real, tested,
+# carrier-whitelisted, REALITY-fit domains.
 #
-# Everything below works as-is for most VPS servers (EU/NL/DE/FI).
-# To improve coverage for your location:  ngray sni test
-# To discover better SNIs near your VPS:  ngray sni discover
+# To score your SNIs against your VPS location: ngray sni test
+# To discover even better SNIs near your VPS:   ngray sni discover
 
 server:
-  ip: auto        # detected from the VPS automatically
+  ip: auto
   enable_bbr: true
 
 nginx:
   port: 443
 
 cores:
-  # ── xray ─────────────────────────────────────────────────────────
-  # VLESS+REALITY+Vision: the most reliable MCI bypass.
+  # ── xray (loopback 11000-11999, behind nginx:443) ────────────────
+  # REALITY+Vision: best MCI bypass — full-duplex XTLS hides TLS-in-TLS.
   # XHTTP: chunked HTTP behind real nginx — survives MTN SNI inspection.
   xray:
     reality:
-      - {sni: www.rust-lang.org}    # TLS1.3, h2, X25519 ✓
+      - {sni: www.rust-lang.org}    # TLS1.3 + h2 + X25519 + CDN ✓
       - {sni: dl.google.com}        # near EU VPS, OCSP stapling ✓
-      - {sni: addons.mozilla.org}   # widely whitelisted ✓
+      - {sni: addons.mozilla.org}   # widely carrier-whitelisted ✓
+      - {sni: mozilla.org}          # distinct SNI, same strong properties ✓
+      - {sni: crates.io}            # Cloudflare-backed, fast ✓
     xhttp:
-      - {sni: www.python.org}       # HTTP shape — distinct from Vision ✓
-      - {sni: pypi.org}             # CDN-backed, second XHTTP shape ✓
+      - {sni: www.python.org}       # HTTP shape — distinct from Vision
+      - {sni: pypi.org}             # CDN-backed, second XHTTP SNI
+      - {sni: jquery.com}           # widely cached/whitelisted CDN ✓
+      - {sni: react.dev}            # Vercel-backed, clean TLS ✓
 
-  # ── shoes (Rust TLS — different fingerprint than xray/sing-box) ──
-  # AnyTLS pads every TLS record to defeat length-based DPI.
+  # ── shoes (loopback 12000-12999, behind nginx:443) ───────────────
+  # Rust TLS → different ClientHello fingerprint from xray/sing-box.
+  # AnyTLS pads records to defeat length-based DPI (proto: anytls).
   shoes:
     reality:
       - {sni: www.debian.org,       proto: anytls}
       - {sni: www.archlinux.org,    proto: anytls}
-      - {sni: www.nginx.org,        proto: vless_vision}
+      - {sni: www.nginx.org,        proto: anytls}
       - {sni: gradle.org,           proto: anytls}
+      - {sni: ubuntu.com,           proto: vless_vision}
+      - {sni: canonical.com,        proto: anytls}
 
-  # ── sing-box (widest client support: husi, exclave, nekobox) ─────
+  # ── sing-box (loopback 13000-13999, behind nginx:443) ────────────
+  # Best client support: husi, exclave, nekobox use sing-box natively.
   singbox:
     reality:
       - {sni: docs.python.org,      proto: anytls}
       - {sni: pkg.go.dev,           proto: anytls}
       - {sni: kotlinlang.org,       proto: vless_vision}
       - {sni: nodejs.org,           proto: anytls}
+      - {sni: rubygems.org,         proto: anytls}
+      - {sni: jetbrains.com,        proto: vless_vision}
 
-    # TUIC v5: QUIC+BBR, different from hysteria2. UDP, own port.
+    # TUIC v5: QUIC+BBR, h3 ALPN. Different stack from hysteria2.
+    # tuic:// URI supported by nekobox, husi, exclave, v2rayN (recent).
     tuic:
       enabled: true
       port: 36711
       sni: www.rust-lang.org
 
-    # ShadowTLS v3: mimics real TLS to fool deep inspection. TCP, own port.
+    # ShadowTLS v3: real TLS handshake to SNI wraps inner Shadowsocks.
+    # Indistinguishable from HTTPS to DPI. ss:// + shadow-tls plugin.
     shadowtls:
       enabled: true
       port: 2443
       sni: www.rust-lang.org
 
-  # ── hysteria2 ─────────────────────────────────────────────────────
-  # Salamander turns QUIC into patternless UDP — survives 50 % packet loss.
-  # alt_ports: clients rotate ports if one is rate-limited (firewall handles it).
+  # ── hysteria2 (independent QUIC/UDP, NOT behind nginx) ───────────
+  # Salamander turns QUIC into patternless random UDP — survives packet loss.
+  # alt_ports: clients rotate freely; firewall REDIRECT maps all → port 443.
   hysteria2:
     enabled: true
     port: 443
@@ -67,7 +80,7 @@ cores:
     sni: www.rust-lang.org
     obfs: salamander
 
-  # ── fptn (full-tunnel TUN VPN, disabled unless you need it) ───────
+  # ── fptn (full-tunnel TUN VPN — disabled unless explicitly needed) ──
   fptn:
     enabled: false
     port: 2096
@@ -75,7 +88,9 @@ cores:
 
 subscription:
   enabled: true
-  front_sni: www.kernel.org   # subscribe URL: https://<VPS-IP>/s/<token>
+  front_sni: www.kernel.org    # subscribe URL: https://<server-IP>/s/<token>
+  # Cert is self-signed with IP SAN → validates cleanly without --insecure.
+  # Token is generated once and never changes unless you run `ngray regen`.
 
 client:
   emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]

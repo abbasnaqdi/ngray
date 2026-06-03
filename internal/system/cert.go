@@ -64,3 +64,30 @@ func (e *Env) GenSelfSigned(cn, certPath, keyPath string, extraSANs ...string) e
 func pemBytes(typ string, der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der})
 }
+
+// CertHasIPSAN reports whether the PEM cert at certPath includes ip as a SAN.
+// Returns false on any read/parse error so the caller can regenerate safely.
+func (e *Env) CertHasIPSAN(certPath, ip string) bool {
+	target := net.ParseIP(ip)
+	if target == nil {
+		return true // not an IP; no SAN needed
+	}
+	b, err := e.ReadFile(certPath)
+	if err != nil {
+		return false
+	}
+	blk, _ := pem.Decode(b)
+	if blk == nil {
+		return false
+	}
+	cert, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		return false
+	}
+	for _, san := range cert.IPAddresses {
+		if san.Equal(target) {
+			return true
+		}
+	}
+	return false
+}

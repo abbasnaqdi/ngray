@@ -118,9 +118,12 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	if cfg.Subscription.Enabled {
 		token := st.EnsureSubToken()
-		// Always regenerate the sub cert so the IP SAN stays current.
-		// Fast operation (ECDSA keygen + self-sign); stable across re-runs.
-		_ = sys.Remove(sub.CertPath)
+		// Regenerate the sub cert only when the server IP SAN is missing
+		// (first run, or after an IP change). Once generated it stays stable
+		// so clients don't see a new certificate fingerprint on every setup.
+		if !sys.CertHasIPSAN(sub.CertPath, ip) {
+			_ = sys.Remove(sub.CertPath)
+		}
 		if err := sys.GenSelfSigned(cfg.Subscription.FrontSNI, sub.CertPath, sub.KeyPath, ip); err != nil {
 			return nil, err
 		}
