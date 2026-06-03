@@ -4,7 +4,10 @@ DATE    := $(shell date -u +%Y-%m-%d)
 PKG     := github.com/abbasnaqdi/ng-ray/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
-.PHONY: build install test vet fmt lint check e2e clean
+.PHONY: build install test vet fmt lint check e2e dist release clean
+
+# Platforms shipped in a release. linux/amd64 is what `ngray update --self` pulls.
+PLATFORMS := linux/amd64 linux/arm64
 
 PREFIX ?= /usr/local
 # Elevate with sudo only when the target dir isn't writable.
@@ -36,5 +39,29 @@ check: fmt vet test
 e2e:
 	bash scripts/e2e.sh
 
+# Cross-compile every release platform into dist/ with a checksums file.
+# Asset names (ngray-<os>-<arch>) match the self-updater's lookup regex.
+dist: check
+	@rm -rf dist && mkdir -p dist
+	@for p in $(PLATFORMS); do \
+		os=$${p%/*}; arch=$${p#*/}; out=dist/ngray-$$os-$$arch; \
+		echo "building $$out"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
+			go build -trimpath -ldflags "$(LDFLAGS)" -o $$out ./cmd/ngray; \
+	done
+	@cd dist && sha256sum ngray-* > SHA256SUMS
+	@echo "dist ready:" && ls -1 dist
+
+# Tag v$(VERSION) and publish a GitHub release with the dist/ assets.
+# Requires gh (https://cli.github.com) and a clean tree on the release commit.
+release: dist
+	@test -z "$$(git status --porcelain)" || { echo "tree dirty; commit first"; exit 1; }
+	@command -v gh >/dev/null 2>&1 || { echo "install gh: https://cli.github.com"; exit 1; }
+	git tag -a v$(VERSION) -m "ng-ray v$(VERSION)"
+	git push origin v$(VERSION)
+	gh release create v$(VERSION) dist/* \
+		--title "ng-ray v$(VERSION)" --generate-notes
+
 clean:
 	rm -f ngray
+	rm -rf dist

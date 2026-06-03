@@ -12,7 +12,7 @@ import (
 )
 
 // SelfRepo is where ng-ray releases are published.
-const SelfRepo = "abbasnaqdi/ng-ray"
+const SelfRepo = "abbasnaqdi/ngray"
 
 // UpdateCores updates each installed core whose latest release is newer,
 // gated by confirm, restarting the service afterwards.
