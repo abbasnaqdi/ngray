@@ -1,37 +1,51 @@
+# ng-ray toolkit — server configuration.
+# Copy to config.yml next to the binary and edit. Every REALITY `sni` must be a
+# real TLS1.3 + h2 site and must be UNIQUE across all cores (nginx routes one
+# SNI to one backend). Validate candidates with: ngray sni test  /  sni discover
+
 server:
   ip: auto                 # auto-detect public IP, prompt to confirm
-  enable_bbr: true
+  enable_bbr: true         # fq + bbr + buffer tuning for throughput on lossy links
 
 nginx:
-  port: 443                # single public TCP surface; SNI-multiplexed
+  port: 443                # the only public TCP surface; SNI-multiplexed HTTPS
 
 cores:
-  xray:                    # loopback backends 11000-11999, fronted by nginx:443
-    reality:
+  # xray — loopback backends 11000-11999, fronted by nginx:443
+  xray:
+    reality:               # VLESS + REALITY + XTLS-Vision (best cross-operator)
       - {sni: rust-lang.org, flow: vision}
       - {sni: python.org,    flow: vision}
-    xhttp:
+    xhttp:                 # chunked HTTP behind real nginx; authentic fingerprint
       - {sni: pypi.org}
-  shoes:                   # loopback backends 12000-12999
+
+  # shoes — loopback backends 12000-12999 (Rust; some combos work when others don't)
+  shoes:
     reality:
       - {sni: www.rust-lang.org, proto: vless_vision}
       - {sni: www.debian.org,    proto: anytls}
-  singbox:                 # loopback backends 13000-13999
+
+  # sing-box — loopback backends 13000-13999
+  singbox:
     reality:
-      - {sni: www.debian.org, proto: anytls}
-  hysteria2:               # independent QUIC/UDP core (not behind nginx)
+      - {sni: www.python.org, proto: anytls}
+
+  # hysteria2 — independent QUIC/UDP core (not behind nginx)
+  hysteria2:
     enabled: true
     port: 443              # mimics HTTP/3; salamander makes it patternless UDP
     sni: rust-lang.org
     obfs: salamander
-  fptn:                    # independent TUN core (not behind nginx)
+
+  # fptn — independent TUN VPN core (token-based); off by default
+  fptn:
     enabled: false
     port: 2096
     sni: rust-lang.org
 
 subscription:
   enabled: true
-  front_sni: www.kernel.org   # dedicated SNI (not a core route), random token path on nginx:443
+  front_sni: www.kernel.org   # dedicated SNI (not a core route); random token path on 443
 
 client:
   emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]

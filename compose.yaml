@@ -1,0 +1,18 @@
+# Dev / E2E environment. Works with `docker compose` or `podman compose`.
+#
+#   docker compose run --rm e2e        # run the end-to-end test
+#   docker compose run --rm shell      # interactive shell with ngray installed
+#
+# The container is throwaway — your host is never touched.
+services:
+  e2e:
+    build: .
+    cap_add: ["NET_ADMIN"]
+    command: ["-c", "bash /work/scripts/e2e-inner.sh"]
+    volumes:
+      - ./scripts:/work/scripts:ro
+
+  shell:
+    build: .
+    cap_add: ["NET_ADMIN"]
+    command: ["-l"]

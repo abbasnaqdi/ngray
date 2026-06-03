@@ -103,7 +103,7 @@ func Default() *Config {
 			},
 			Singbox: Singbox{
 				Reality: []Reality{
-					{SNI: "www.debian.org", Proto: "anytls"},
+					{SNI: "www.python.org", Proto: "anytls"},
 				},
 			},
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, SNI: "rust-lang.org", Obfs: "salamander"},
@@ -168,11 +168,17 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid reality proto %q for sni %s", r.Proto, r.SNI)
 		}
 	}
+	// Each SNI may map to only one backend under nginx ssl_preread.
+	seen := map[string]bool{}
+	for _, s := range c.RouteSNIs() {
+		if seen[s] {
+			return fmt.Errorf("SNI %q is used by more than one core; each REALITY SNI must be unique", s)
+		}
+		seen[s] = true
+	}
 	if c.Subscription.Enabled {
-		for _, s := range c.RouteSNIs() {
-			if s == c.Subscription.FrontSNI {
-				return fmt.Errorf("subscription.front_sni %q collides with a core route SNI; use a dedicated SNI", s)
-			}
+		if seen[c.Subscription.FrontSNI] {
+			return fmt.Errorf("subscription.front_sni %q collides with a core route SNI; use a dedicated SNI", c.Subscription.FrontSNI)
 		}
 	}
 	return nil
