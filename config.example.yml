@@ -1,101 +1,81 @@
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║               ng-ray toolkit  —  server configuration            ║
+# ║          ng-ray toolkit  —  ready-to-run server config           ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
-# Copy to config.yml next to the binary, edit SNIs for your VPS, then:
-#   ngray sni test          — verify SNIs are REALITY-fit
-#   ngray server setup      — provision everything
+# Copy to config.yml and run:  sudo ./ngray server setup
 #
-# ── SNI uniqueness rule ───────────────────────────────────────────
-# Every SNI under xray / shoes / singbox reality/xhttp MUST be globally
-# unique. nginx ssl_preread routes exactly ONE SNI to ONE backend.
-# hysteria2 / fptn / tuic are independent (own ports) — SNI reuse OK.
-# subscription.front_sni must not appear in any core route.
-#
-# ── Per-operator bypass strategy ──────────────────────────────────
-# MCI (Hamrah-e-Aval)   IP-block → REALITY Vision survives
-# Irancell / MTN        SNI whitelist + 50 % loss →
-#                         Vision / XHTTP for TCP (whitelisted SNI)
-#                         Hysteria2 Salamander for UDP (loss-tolerant)
-# Rightel               same as MTN
-# All                   more shapes = at least one survives per client
+# Everything below works as-is for most VPS servers (EU/NL/DE/FI).
+# To improve coverage for your location:  ngray sni test
+# To discover better SNIs near your VPS:  ngray sni discover
 
 server:
-  ip: auto           # auto-detect (or set explicitly: "1.2.3.4")
-  enable_bbr: true   # BBR + fq — critical for lossy MTN/Rightel links
+  ip: auto        # detected from the VPS automatically
+  enable_bbr: true
 
 nginx:
-  port: 443          # only public TCP surface; all TCP cores share via SNI mux
+  port: 443
 
 cores:
-  # ── xray  (loopback 11000-11999, behind nginx:443) ───────────────
-  # Best REALITY and XHTTP implementation. Vision = XTLS full-duplex
-  # (hides TLS-in-TLS fingerprint). XHTTP = chunked HTTP over real nginx.
+  # ── xray ─────────────────────────────────────────────────────────
+  # VLESS+REALITY+Vision: the most reliable MCI bypass.
+  # XHTTP: chunked HTTP behind real nginx — survives MTN SNI inspection.
   xray:
     reality:
-      - {sni: www.rust-lang.org}   # TLS1.3 + h2 + X25519 + CDN ✓
-      - {sni: dl.google.com}       # near EU/NL VPS, OCSP stapling ✓
+      - {sni: www.rust-lang.org}    # TLS1.3, h2, X25519 ✓
+      - {sni: dl.google.com}        # near EU VPS, OCSP stapling ✓
+      - {sni: addons.mozilla.org}   # widely whitelisted ✓
     xhttp:
-      - {sni: www.python.org}      # on most carrier whitelists ✓
-      - {sni: pypi.org}            # alternate XHTTP shape; CDN-backed ✓
+      - {sni: www.python.org}       # HTTP shape — distinct from Vision ✓
+      - {sni: pypi.org}             # CDN-backed, second XHTTP shape ✓
 
-  # ── shoes  (loopback 12000-12999, behind nginx:443) ──────────────
-  # Rust TLS stack → different ClientHello fingerprint from xray/sing-box.
-  # AnyTLS adds random-length padding to every TLS record (defeats length DPI).
+  # ── shoes (Rust TLS — different fingerprint than xray/sing-box) ──
+  # AnyTLS pads every TLS record to defeat length-based DPI.
   shoes:
     reality:
-      - {sni: www.debian.org,    proto: anytls}       # TCP padding + REALITY
-      - {sni: www.archlinux.org, proto: anytls}       # alternate AnyTLS SNI
-      - {sni: www.nginx.org,     proto: vless_vision} # Vision via Rust TLS
+      - {sni: www.debian.org,       proto: anytls}
+      - {sni: www.archlinux.org,    proto: anytls}
+      - {sni: www.nginx.org,        proto: vless_vision}
+      - {sni: gradle.org,           proto: anytls}
 
-  # ── sing-box  (loopback 13000-13999, behind nginx:443 + TUIC UDP) ─
-  # Widest client support: husi / exclave / nekobox use sing-box natively.
+  # ── sing-box (widest client support: husi, exclave, nekobox) ─────
   singbox:
     reality:
-      - {sni: docs.python.org, proto: anytls}       # AnyTLS (husi/exclave)
-      - {sni: pkg.go.dev,      proto: anytls}        # alternate AnyTLS SNI
-      - {sni: kotlinlang.org,  proto: vless_vision}  # Vision via sing-box
-    # TUIC v5 — QUIC BBR, h3 ALPN, different stack from hysteria2.
-    # tuic:// URI works in nekobox / husi / exclave / v2rayN (recent).
-    # Independent UDP port — NOT behind nginx.
+      - {sni: docs.python.org,      proto: anytls}
+      - {sni: pkg.go.dev,           proto: anytls}
+      - {sni: kotlinlang.org,       proto: vless_vision}
+      - {sni: nodejs.org,           proto: anytls}
+
+    # TUIC v5: QUIC+BBR, different from hysteria2. UDP, own port.
     tuic:
       enabled: true
-      port: 36711            # public UDP; firewall opened automatically
+      port: 36711
       sni: www.rust-lang.org
 
-    # ShadowTLS v3 — mimics a real TLS handshake to SNI, then tunnels
-    # Shadowsocks inside. Looks like normal TLS to DPI. TCP, own public port.
-    # ss:// with shadow-tls plugin; works in husi / exclave / nekobox.
+    # ShadowTLS v3: mimics real TLS to fool deep inspection. TCP, own port.
     shadowtls:
       enabled: true
-      port: 2443             # public TCP; firewall opened automatically
-      sni: www.rust-lang.org # real TLS handshake target (must be a live TLS site)
+      port: 2443
+      sni: www.rust-lang.org
 
-  # ── hysteria2  (independent QUIC/UDP, NOT behind nginx) ──────────
-  # Salamander obfs turns QUIC into patternless random UDP bytes.
-  # Brutal CC recovers throughput through 50 % packet loss (MTN/Rightel).
-  # alt_ports: same credentials; iptables REDIRECT maps extras → main port.
-  # Clients round-robin ports when one is rate-limited.
+  # ── hysteria2 ─────────────────────────────────────────────────────
+  # Salamander turns QUIC into patternless UDP — survives 50 % packet loss.
+  # alt_ports: clients rotate ports if one is rate-limited (firewall handles it).
   hysteria2:
     enabled: true
-    port: 443           # UDP 443 — looks like HTTP/3 to shallow DPI
+    port: 443
     alt_ports: [8443, 2087, 2096]
     sni: www.rust-lang.org
-    obfs: salamander    # only production obfs type in hy2
+    obfs: salamander
 
-  # ── fptn  (full-tunnel TUN VPN, off by default) ──────────────────
-  # Token-based, no standard protocol fingerprint. Last-resort fallback.
+  # ── fptn (full-tunnel TUN VPN, disabled unless you need it) ───────
   fptn:
     enabled: false
     port: 2096
     sni: www.rust-lang.org
 
-# ── subscription ─────────────────────────────────────────────────
-# Clients add this URL once; all configs appear and auto-update.
-# Cert includes server IP as SAN → https://IP/s/TOKEN validates cleanly.
 subscription:
   enabled: true
-  front_sni: www.kernel.org   # dedicated SNI not used by any core above
+  front_sni: www.kernel.org   # subscribe URL: https://<VPS-IP>/s/<token>
 
 client:
   emit: [vless, anytls, hysteria2, singbox_json, subscription, qr]
