@@ -10,26 +10,41 @@ import (
 const sysctlFile = "/etc/sysctl.d/99-ngray.conf"
 
 var tuning = map[string]string{
-	// Congestion control — BBR with fq qdisc
+	// Congestion control — BBR + fq is the single biggest win for lossy links.
+	// BBR does not back off on packet loss the way CUBIC does.
 	"net.core.default_qdisc":          "fq",
 	"net.ipv4.tcp_congestion_control": "bbr",
-	// Network buffers — large enough for fast QUIC and bulk transfers
+
+	// Network buffers — large enough for QUIC throughput on lossy high-latency links.
 	"net.core.rmem_max":     "67108864",
 	"net.core.wmem_max":     "67108864",
-	"net.core.rmem_default": "4194304",
-	"net.core.wmem_default": "4194304",
-	// Accept queue depth — prevents drop under burst connections
+	"net.core.rmem_default": "8388608",
+	"net.core.wmem_default": "8388608",
+
+	// Accept queue depth — prevents connection drops during bursts.
 	"net.core.somaxconn":          "65535",
 	"net.core.netdev_max_backlog": "65535",
-	// TCP latency — reduce idle slow-start, enable Fast Open
-	"net.ipv4.tcp_slow_start_after_idle": "0",
-	"net.ipv4.tcp_fastopen":              "3",
-	"net.ipv4.tcp_notsent_lowat":         "16384",
-	// MTU probing — adapt to path MTU automatically
+
+	// TCP keepalive — detect dead connections quickly and recover.
+	// On lossy MTN/Rightel, idle connections die silently; fast keepalive
+	// lets the client reconnect before it notices a timeout.
+	"net.ipv4.tcp_keepalive_time":   "60",
+	"net.ipv4.tcp_keepalive_intvl":  "10",
+	"net.ipv4.tcp_keepalive_probes": "3",
+
+	// MTU probing — auto-adapt to path MTU; prevents fragmentation-induced loss.
 	"net.ipv4.tcp_mtu_probing": "1",
+
+	// No slow-start penalty after idle — stream resumes at full rate.
+	"net.ipv4.tcp_slow_start_after_idle": "0",
+
+	// Reduce write-buffer latency for interactive proxy traffic.
+	"net.ipv4.tcp_notsent_lowat": "16384",
 }
 
-// EnableBBR persists fq+bbr and network buffer tuning, then reloads sysctl.
+// EnableBBR persists the tuning table and reloads sysctl.
+// NOTE: tcp_fastopen is intentionally excluded — it causes middlebox drops
+// and DPI fingerprinting on Iranian/Chinese carrier networks.
 func (e *Env) EnableBBR(ctx context.Context) error {
 	var b strings.Builder
 	b.WriteString("# managed by ng-ray\n")

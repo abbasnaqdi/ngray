@@ -111,12 +111,12 @@ cores:
     user: ngray
 
   mieru:
-    enabled: false
+    enabled: true         # no fingerprint — effective against ML-based DPI (China/Russia)
     port: 14000
     user: ngray
 
   amneziawg:
-    enabled: false
+    enabled: true         # obfuscated WireGuard — junk headers, Russia-grade
     port: 51820
 
 subscription:
