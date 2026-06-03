@@ -11,5 +11,8 @@ config.yml
 sub.txt
 *_clean.txt
 
+# Sandbox output from `ngray server setup --sandbox`
+/sandbox/
+
 # Codegraph index
 /.codegraph/

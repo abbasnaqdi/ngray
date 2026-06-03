@@ -5,12 +5,17 @@
 # this validates install paths, config writing, nginx -t and link output.
 set -euo pipefail
 
+# Prefer docker, fall back to podman.
+if command -v docker >/dev/null 2>&1; then CT=docker
+elif command -v podman >/dev/null 2>&1; then CT=podman
+else echo "need docker or podman"; exit 127; fi
+
 img=ngray-e2e
-echo "building $img…"
-docker build -t "$img" .
+echo "building $img with $CT…"
+"$CT" build -t "$img" .
 
 echo "running e2e…"
-docker run --rm --cap-add=NET_ADMIN "$img" -c '
+"$CT" run --rm --cap-add=NET_ADMIN "$img" -c '
   set -e
   ngray version
   # sandbox run first: must touch nothing under /etc
