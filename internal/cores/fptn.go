@@ -58,7 +58,10 @@ func (Fptn) Build(p *Plan) (Result, error) {
 		return Result{}, err
 	}
 
-	user := "vpnuser"
+	user := p.Cfg.Cores.Fptn.User
+	if user == "" {
+		user = "ngray"
+	}
 	pass := p.St.Secret("fptn|pw", func() state.Secret { return state.Secret{Password: state.NewPassword(16)} }).Password
 	ctx := context.Background()
 	_, _ = p.Sys.Run(ctx, "fptn-passwd", "--del-user", user, "--userfile", fptnDir+"/users.list")

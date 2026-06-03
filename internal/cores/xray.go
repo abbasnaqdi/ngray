@@ -81,7 +81,7 @@ func (Xray) Build(p *Plan) (Result, error) {
 		}
 		uid, sid := uuid(p.St, cid), shortID(p.St, cid)
 		inbounds = append(inbounds, map[string]any{
-			"listen": "0.0.0.0", "port": port, "protocol": "vless",
+			"listen": "127.0.0.1", "port": port, "protocol": "vless",
 			"settings": map[string]any{
 				"clients":    []map[string]any{{"id": uid, "flow": "xtls-rprx-vision"}},
 				"decryption": "none",
@@ -96,10 +96,6 @@ func (Xray) Build(p *Plan) (Result, error) {
 			Tag: links.Tag("xray", "reality", r.SNI), Proto: "vless-vision",
 			Server: p.IP, Port: p.Cfg.Nginx.Port, SNI: r.SNI, PublicKey: pub, ShortID: sid, UUID: uid,
 		})
-		res.Endpoints = append(res.Endpoints, links.Endpoint{
-			Tag: links.Tag("xray", "reality-direct", r.SNI), Proto: "vless-vision",
-			Server: p.IP, Port: port, SNI: r.SNI, PublicKey: pub, ShortID: sid, UUID: uid,
-		})
 	}
 
 	for _, x := range p.Cfg.Cores.Xray.XHTTP {
@@ -111,7 +107,7 @@ func (Xray) Build(p *Plan) (Result, error) {
 		uid, sid := uuid(p.St, cid), shortID(p.St, cid)
 		path := xhttpPath(p.St, cid)
 		inbounds = append(inbounds, map[string]any{
-			"listen": "0.0.0.0", "port": port, "protocol": "vless",
+			"listen": "127.0.0.1", "port": port, "protocol": "vless",
 			"settings": map[string]any{
 				"clients": []map[string]any{{"id": uid}}, "decryption": "none",
 			},
@@ -125,10 +121,6 @@ func (Xray) Build(p *Plan) (Result, error) {
 		res.Endpoints = append(res.Endpoints, links.Endpoint{
 			Tag: links.Tag("xray", "xhttp", x.SNI), Proto: "vless-xhttp",
 			Server: p.IP, Port: p.Cfg.Nginx.Port, SNI: x.SNI, PublicKey: pub, ShortID: sid, UUID: uid, Path: path,
-		})
-		res.Endpoints = append(res.Endpoints, links.Endpoint{
-			Tag: links.Tag("xray", "xhttp-direct", x.SNI), Proto: "vless-xhttp",
-			Server: p.IP, Port: port, SNI: x.SNI, PublicKey: pub, ShortID: sid, UUID: uid, Path: path,
 		})
 	}
 

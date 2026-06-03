@@ -6,6 +6,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,12 +24,13 @@ import (
 )
 
 type Options struct {
-	ConfigPath string
-	StatePath  string
-	Sandbox    bool                          // redirect writes + skip host mutations
-	Root       string                        // sandbox dir (default ./sandbox)
-	Confirm    func(prompt string) bool      // install permission gate
-	Log        func(format string, a ...any) // progress output
+	ConfigPath     string
+	StatePath      string
+	CandidatesPath string                        // path to candidates.sni; auto-resolved if empty
+	Sandbox        bool                          // redirect writes + skip host mutations
+	Root           string                        // sandbox dir (default ./sandbox)
+	Confirm        func(prompt string) bool      // install permission gate
+	Log            func(format string, a ...any) // progress output
 }
 
 func (o Options) confirm(p string) bool {
@@ -54,9 +57,22 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		sys = system.NewSandbox(root, o.Log)
 		o.log("sandbox: writing under %s, host mutations skipped", root)
 	}
+	freshInstall := false
+	if _, statErr := os.Stat(o.ConfigPath); os.IsNotExist(statErr) {
+		freshInstall = true
+	}
+
 	cfg, err := config.LoadOrDefault(o.ConfigPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if freshInstall && !sys.DryRun {
+		candidatesPath := o.CandidatesPath
+		if candidatesPath == "" {
+			candidatesPath = candidatesNear(o.ConfigPath)
+		}
+		_ = autoPopulateSNIs(ctx, candidatesPath, o.ConfigPath, cfg, o.log)
 	}
 	st, err := state.Load(o.StatePath)
 	if err != nil {
@@ -184,6 +200,16 @@ func validateSNIs(ctx context.Context, cfg *config.Config, o Options) {
 			o.log("  ! %s  %s — keeping (operator whitelist may differ)", r.Host, r.Status)
 		}
 	})
+}
+
+// candidatesNear resolves snis/candidates.sni relative to configPath (which
+// lives next to the binary), falling back to a relative path for dev runs.
+func candidatesNear(configPath string) string {
+	rel := filepath.Join(filepath.Dir(configPath), "snis", "candidates.sni")
+	if _, err := os.Stat(rel); err == nil {
+		return rel
+	}
+	return filepath.Join("snis", "candidates.sni")
 }
 
 func ensureNginx(ctx context.Context, sys *system.Env, o Options) error {

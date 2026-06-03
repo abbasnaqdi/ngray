@@ -85,6 +85,7 @@ cores:
     enabled: false
     port: 2096
     sni: www.rust-lang.org
+    user: ngray
 
   # ── mieru (multiplexed tunnel, no protocol fingerprint) ───────────
   # Resistant to ML-based detection used in China / Russia.
@@ -92,7 +93,7 @@ cores:
   mieru:
     enabled: false
     port: 14000
-    user: nguser
+    user: ngray
 
   # ── amneziawg (obfuscated WireGuard) ─────────────────────────────
   # Adds random junk headers to every WG packet — undetectable to DPI.

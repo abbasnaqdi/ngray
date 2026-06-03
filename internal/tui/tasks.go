@@ -64,10 +64,12 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 		emit(badge.Render("sandbox") + " not root — writing under ./sandbox; run `sudo ngray` for a real server")
 	}
 	d, err := server.Setup(ctx, server.Options{
-		ConfigPath: config.Path(), StatePath: state.Path(),
-		Sandbox: sandbox,
-		Confirm: func(string) bool { return true },
-		Log:     func(f string, a ...any) { emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...)) },
+		ConfigPath:     config.Path(),
+		StatePath:      state.Path(),
+		CandidatesPath: candidatesPath(),
+		Sandbox:        sandbox,
+		Confirm:        func(string) bool { return true },
+		Log:            func(f string, a ...any) { emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...)) },
 	})
 	if err != nil {
 		return err

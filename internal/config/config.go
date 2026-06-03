@@ -108,6 +108,7 @@ type Fptn struct {
 	Enabled bool   `yaml:"enabled"`
 	Port    int    `yaml:"port"`
 	SNI     string `yaml:"sni"`
+	User    string `yaml:"user"`
 }
 
 type Subscription struct {
@@ -144,8 +145,8 @@ func Default() *Config {
 				ShadowTLS: &SingboxShadowTLS{Enabled: true, Port: 2443, SNI: "www.rust-lang.org"},
 			},
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087}, SNI: "www.rust-lang.org", Obfs: "salamander"},
-			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org"},
-			Mieru:     MieruCore{Enabled: false, Port: 14000, User: "nguser"},
+			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org", User: "ngray"},
+			Mieru:     MieruCore{Enabled: false, Port: 14000, User: "ngray"},
 			AmneziaWG: AmneziaWGCore{Enabled: false, Port: 51820},
 		},
 		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org"},
