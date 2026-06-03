@@ -50,10 +50,18 @@ func (Mieru) Install(ctx context.Context, sys *system.Env) error {
 	if err := os.MkdirAll(mieruDir, 0o755); err != nil {
 		return err
 	}
-	// RuntimeDirectory=mita creates /run/mita on service start (survives reboots).
-	// MITA_CONFIG_JSON_FILE tells mita run to load config from our JSON file;
-	// no mita apply config gRPC call required.
-	svc := fmt.Sprintf(`[Unit]
+	if err := writeMieruUnit(sys); err != nil {
+		return err
+	}
+	return sys.DaemonReload(ctx)
+}
+
+// mieruUnit is the systemd unit. RuntimeDirectory=mita creates /run/mita on
+// service start (mita binds its RPC socket there); without it mita fails with
+// "bind: no such file or directory". MITA_CONFIG_JSON_FILE makes mita run load
+// our JSON directly — no gRPC apply-config step.
+func mieruUnit() string {
+	return fmt.Sprintf(`[Unit]
 Description=mieru proxy server
 After=network.target
 
@@ -69,10 +77,10 @@ LimitNOFILE=65535
 [Install]
 WantedBy=multi-user.target
 `, mieruBin, mieruConf)
-	if err := sys.WriteUnit("mieru-server.service", svc); err != nil {
-		return err
-	}
-	return sys.DaemonReload(ctx)
+}
+
+func writeMieruUnit(sys *system.Env) error {
+	return sys.WriteUnit("mieru-server.service", mieruUnit())
 }
 
 func (Mieru) Build(p *Plan) (Result, error) {
@@ -95,9 +103,12 @@ func (Mieru) Build(p *Plan) (Result, error) {
 		return Result{}, err
 	}
 
-	// mita run reads MITA_CONFIG_JSON_FILE set in the systemd unit, so we only
-	// need to (re)start the service — no mita apply config gRPC call required.
+	// Refresh the unit every deploy so unit-level fixes (e.g. RuntimeDirectory)
+	// reach servers installed before the fix, then (re)start.
 	ctx := context.Background()
+	if err := writeMieruUnit(p.Sys); err == nil {
+		_ = p.Sys.DaemonReload(ctx)
+	}
 	if err := p.Sys.EnableNow(ctx, "mieru-server"); err != nil {
 		_ = p.Sys.Restart(ctx, "mieru-server")
 	}

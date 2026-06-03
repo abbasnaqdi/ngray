@@ -48,7 +48,37 @@ func (AmneziaWG) Install(ctx context.Context, sys *system.Env) error {
 	if err := awgInstallKernel(ctx, sys); err != nil {
 		return err
 	}
-	return os.MkdirAll(awgDir, 0o700)
+	if err := os.MkdirAll(awgDir, 0o700); err != nil {
+		return err
+	}
+	if err := awgWriteUnit(sys); err != nil {
+		return err
+	}
+	return sys.DaemonReload(ctx)
+}
+
+// awgWriteUnit installs the awg-quick@.service systemd template. The
+// amneziawg-tools zip ships only the awg/awg-quick binaries (no unit), so
+// without this `systemctl start awg-quick@wg0` fails with "unit not found".
+// awg-quick reads /etc/amnezia/amneziawg/<iface>.conf.
+func awgWriteUnit(sys *system.Env) error {
+	return sys.WriteUnit("awg-quick@.service", `[Unit]
+Description=AmneziaWG via awg-quick(8) for %I
+After=network-online.target nss-lookup.target
+Wants=network-online.target nss-lookup.target
+Documentation=man:awg-quick(8)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/awg-quick up %i
+ExecStop=/usr/local/bin/awg-quick down %i
+Environment=WG_ENDPOINT_RESOLUTION_RETRIES=infinity
+WorkingDirectory=/etc/amnezia/amneziawg
+
+[Install]
+WantedBy=multi-user.target
+`)
 }
 
 // awgInstallTools extracts awg and awg-quick from the ubuntu zip release.
@@ -187,6 +217,11 @@ PersistentKeepalive = 25
 
 	if err := p.Sys.WriteFile(awgDir+"/wg0.conf", []byte(serverConf), 0o600); err != nil {
 		return Result{}, err
+	}
+	// Refresh the unit every deploy so servers installed before the template fix
+	// gain awg-quick@.service, then bring the interface up.
+	if err := awgWriteUnit(p.Sys); err == nil {
+		_ = p.Sys.DaemonReload(ctx)
 	}
 	if err := p.Sys.EnableNow(ctx, "awg-quick@wg0"); err != nil {
 		_ = p.Sys.Restart(ctx, "awg-quick@wg0")

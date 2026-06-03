@@ -186,8 +186,12 @@ func Default() *Config {
 				Reality: []Reality{
 					{SNI: "www.debian.org", Proto: "anytls"},
 				},
-				TUIC:      &ShoesTUIC{Enabled: true, Port: 36712, SNI: "www.rust-lang.org"},
-				Hysteria2: &ShoesHy2{Enabled: true, Port: 36713, SNI: "www.rust-lang.org", Obfs: "salamander"},
+				// shoes' TUIC/Hysteria2 inbounds emit a top-level `tls:` key that
+				// current shoes rejects (breaks the whole config), and they are
+				// redundant with sing-box TUIC and the hysteria core. Disabled so
+				// shoes serves its unique Rust REALITY (anytls/vision) inbounds.
+				TUIC:      &ShoesTUIC{Enabled: false, Port: 36712, SNI: "www.rust-lang.org"},
+				Hysteria2: &ShoesHy2{Enabled: false, Port: 36713, SNI: "www.rust-lang.org", Obfs: "salamander"},
 			},
 			Singbox: Singbox{
 				Reality: []Reality{
