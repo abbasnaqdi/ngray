@@ -164,7 +164,7 @@ func Default() *Config {
 				TUIC:      &SingboxTUIC{Enabled: true, Port: 36711, SNI: "www.rust-lang.org"},
 				ShadowTLS: &SingboxShadowTLS{Enabled: true, Port: 2443, SNI: "www.rust-lang.org"},
 			},
-			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087}, SNI: "www.rust-lang.org", Obfs: "salamander"},
+			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087, 2096, 2052, 2082}, SNI: "www.rust-lang.org", Obfs: "salamander"},
 			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org", User: "ngray"},
 			Mieru:     MieruCore{Enabled: true, Port: 14000, User: "ngray"},
 			AmneziaWG: AmneziaWGCore{Enabled: true, Port: 51820},

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
@@ -61,17 +62,56 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 	}
 	log("auto-SNI: %d passed, %d failed — assigning best SNIs (preferred tier first)", passed, failed)
 
+	// Quality-first ordering: keep the full pool (volume is the ask) but lead
+	// with the strongest destinations. Egregiously slow hosts (>2s) are dropped
+	// as dead weight; the rest stay as anti-blocking fallback. Within each tier
+	// we prefer SNIs serving a live page (HTTP 200/3xx — more convincing REALITY
+	// camouflage), then lowest latency.
+	live := func(code int) bool { return code == 200 || (code >= 300 && code < 400) }
+	var trimmed []sni.Result
+	for _, r := range ranked {
+		if r.MedianMS <= 2000 {
+			trimmed = append(trimmed, r)
+		}
+	}
+	if len(trimmed) > 0 {
+		ranked = trimmed
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if pi, pj := preferred[ranked[i].Host], preferred[ranked[j].Host]; pi != pj {
+			return pi // proven (whitelist-friendly) tier stays first
+		}
+		if li, lj := live(ranked[i].HTTPCode), live(ranked[j].HTTPCode); li != lj {
+			return li // a real live site is better camouflage
+		}
+		return ranked[i].Score() < ranked[j].Score()
+	})
+
 	pop := &sniBudget{ranked: ranked}
 
-	// xray: 6 REALITY + 4 XHTTP (XHTTP strongly prefers CDN hosts)
-	cfg.Cores.Xray.Reality = pop.reality(6, "")
-	cfg.Cores.Xray.XHTTP = pop.xhttp(4)
+	// Maximize config volume: consume essentially the entire fit pool, split
+	// across all three nginx-fronted REALITY cores plus a CDN-leaning XHTTP
+	// slice, reserving one SNI for the shared independent-TLS endpoints. Counts
+	// scale with supply, so a thin pool still yields a sane spread while a rich
+	// pool yields hundreds of distinct REALITY configs. Each SNI is unique
+	// (sniBudget never repeats a host) and latency-ranked, so the leading
+	// configs are the fastest and the tail is bonus anti-blocking fallback.
+	total := len(ranked)
+	xhttpN := min(total/8, 24)
+	rest := max(total-xhttpN-1, 0) // reserve one for the shared best SNI below
+	xrayN := rest * 35 / 100
+	shoesN := rest * 33 / 100
+	singboxN := rest - xrayN - shoesN
+
+	// xray: bulk vless+vision REALITY + a CDN-leaning XHTTP slice
+	cfg.Cores.Xray.XHTTP = pop.xhttp(xhttpN)
+	cfg.Cores.Xray.Reality = pop.reality(xrayN, "")
 
 	// shoes: mix anytls (primary) and vless_vision (backup)
-	cfg.Cores.Shoes.Reality = pop.mixedReality(6, "anytls", "vless_vision", 3)
+	cfg.Cores.Shoes.Reality = pop.mixedReality(shoesN, "anytls", "vless_vision", 3)
 
 	// singbox: mix anytls (primary) and vless_vision (backup)
-	cfg.Cores.Singbox.Reality = pop.mixedReality(6, "anytls", "vless_vision", 3)
+	cfg.Cores.Singbox.Reality = pop.mixedReality(singboxN, "anytls", "vless_vision", 3)
 
 	// Independent-TLS cores and the subscription all share the same best SNI
 	// for their self-signed cert (or masquerade target). Reuse first remaining.
