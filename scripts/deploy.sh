@@ -33,8 +33,16 @@ tar -xzf /tmp/ngray-release.tgz -C /root/ngray
 chmod +x ngray
 echo "-- version: $(./ngray version)"
 rm -f config.yml   # force the fresh-install path so setup auto-populates the SNI pool
-echo "==> running: ngray server setup (auto-confirm installs)"
-./ngray server setup < /dev/null
+LOG="setup-$(date +%H%M%S).log"
+echo "==> running: ngray server setup  (detached on server, streaming $LOG)"
+# setsid so the run survives a dropped ssh or a long SNI sweep — otherwise an
+# interrupted setup leaves config.yml removed and never regenerated. We stream
+# the log, but the setup process owns its own lifetime.
+setsid bash -c "./ngray server setup < /dev/null > $LOG 2>&1" &
+sleep 1
+tail -f "$LOG" & TAILPID=$!
+while pgrep -f 'ngray server setup' >/dev/null; do sleep 3; done
+sleep 1; kill "$TAILPID" 2>/dev/null || true
 echo
 echo "==> SERVER STATUS"
 ./ngray server status || true

@@ -13,8 +13,22 @@ echo "== UDP 443 listener:"; ss -ulnp 2>/dev/null | grep -E ':443 ' | sed 's/^/ 
 echo
 echo "########## CLOUDFLARE WS/XHTTP ##########"
 CFG=/usr/local/etc/xray/config.json
-WSPATH=$(jq -r '.inbounds[] | select(.streamSettings.network=="ws") | .streamSettings.wsSettings.path' "$CFG" 2>/dev/null | head -1)
-XHPATH=$(jq -r '.inbounds[] | select(.streamSettings.network=="xhttp" and .streamSettings.security=="tls") | .streamSettings.xhttpSettings.path' "$CFG" 2>/dev/null | head -1)
+# Extract WS / XHTTP-TLS paths with python3 (jq is not installed on the server).
+xpath() { python3 - "$CFG" "$1" <<'PY' 2>/dev/null
+import json,sys
+cfg,net=sys.argv[1],sys.argv[2]
+try: inb=json.load(open(cfg)).get("inbounds",[])
+except Exception: sys.exit()
+for i in inb:
+    ss=i.get("streamSettings",{})
+    if net=="ws" and ss.get("network")=="ws":
+        print(ss.get("wsSettings",{}).get("path","")); break
+    if net=="xhttp" and ss.get("network")=="xhttp" and ss.get("security")=="tls":
+        print(ss.get("xhttpSettings",{}).get("path","")); break
+PY
+}
+WSPATH=$(xpath ws)
+XHPATH=$(xpath xhttp)
 echo "== ws path: ${WSPATH:-NONE}   xhttp-tls path: ${XHPATH:-NONE}"
 echo "== WS upgrade via CF (example.com) — expect 101:"
 curl -s -o /dev/null -w "   http=%{http_code} time=%{time_total}s\n" --max-time 12 \
