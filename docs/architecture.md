@@ -13,10 +13,12 @@ internal/
   ports              per-core loopback ranges + free-port preflight
   firewall           lockout-safe default-drop via a dedicated NGRAY chain
   sni                REALITY-fitness tester (TLS1.3 + h2 + X25519 + latency)
-  cores              Core interface + xray/shoes/sing-box/hysteria/fptn
-  nginx              ssl_preread SNI mux + subscription server config
+  domain             Cloudflare/origin health check (DNS, CF edge status, origin TLS)
+  cores              Core interface + xray/shoes/sing-box/hysteria/fptn/mieru/amneziawg
+  nginx              ssl_preread SNI mux + subscription server (IP + CF-fronted on domain)
   sub                subscription on-disk layout + URL
-  links              Endpoint -> vless/anytls/hysteria2 URIs, QR, sub bundle, sing-box JSON
+  links              Endpoint -> vless(reality/ws)/anytls/hysteria2/tuic/shadowtls URIs,
+                     mieru + wireguard sing-box outbounds, base64 bundle, sing-box JSON
   server             Setup orchestrator, client renderer, update logic
   cdnscan            CDN edge scanner (bubbletea), `ngray scan`
   tui                main menu
@@ -29,31 +31,40 @@ nginx terminates **TCP 443** and uses `ssl_preread` to route by client SNI to a 
 backend, with an unknown-SNI sink returning 444:
 
 ```
-443/tcp ── nginx ssl_preread map ──┬─ www.rust-lang.org → 127.0.0.1:12000  (shoes Vision)
-                                    ├─ www.debian.org    → 127.0.0.1:12001  (shoes AnyTLS)
-                                    ├─ pypi.org          → 127.0.0.1:11003  (xray XHTTP)
-                                    ├─ <front-sni>       → 127.0.0.1:8443   (subscription, TLS)
-                                    └─ default           → 127.0.0.1:8080   (444)
+443/tcp ── nginx ssl_preread map ──┬─ www.rust-lang.org  → 127.0.0.1:12000 (shoes Vision)
+                                    ├─ www.debian.org     → 127.0.0.1:12001 (shoes AnyTLS)
+                                    ├─ example.com       → 127.0.0.1:11xxx (xray VLESS+WS+TLS, CF)
+                                    ├─ www.example.com   → 127.0.0.1:8444  (subscription, CF, origin cert)
+                                    └─ default             → 127.0.0.1:8080  (444)
 ```
 
 Each core owns a distinct backend band — **xray 11000–11999, shoes 12000–12999, sing-box
 13000–13999** — bound to `127.0.0.1` only, so DPI never sees them; the band choice is just
-clean bookkeeping. **hysteria2** (QUIC/UDP) and **fptn** (TUN) are independent cores with
-their own public ports. The only public ports are 443/tcp, the hysteria2 UDP port, the fptn
-TCP port, and SSH.
+clean bookkeeping. **hysteria2** (QUIC/UDP), **mieru** (TCP), **amneziawg** (UDP) and **fptn**
+(TUN) are independent cores with their own public ports.
+
+The 443 mux carries everything TLS-shaped, including two **Cloudflare-fronted** SNIs when a
+CDN domain is configured: `DOMAIN` runs a `VLESS + WS + TLS` inbound that terminates TLS with
+the Cloudflare **Origin Certificate** (REALITY can't front through CF, which terminates TLS at
+its edge), and `www.DOMAIN` routes to a loopback nginx TLS server that serves the subscription
+on 443 — so the subscribe URL is port-free behind Cloudflare with the origin IP hidden.
 
 ## Subscription
 
-nginx serves two subscription endpoints:
+`/s/<token>` serves the base64 URI list, `/sb/<token>` the sing-box JSON outbound
+list (the only place **mieru** and **AmneziaWG** appear, as they have no URI).
+nginx serves these on up to three listeners:
 
-- **HTTP :80** — plain-text fallback, `/s/<token>` → base64 URI list
-- **HTTPS :8443** — self-signed cert (IP SAN); `/s/<token>` → base64 URI list,
-  `/sb/<token>` → sing-box JSON outbound list
+- **HTTP :80** — plain-text fallback (base64 only)
+- **HTTPS :2053** — self-signed cert (IP SAN); direct-IP fallback, skip-cert-verify
+- **`https://www.DOMAIN/` (443, via Cloudflare)** — *primary when a CDN domain is
+  set*: a loopback TLS server (`127.0.0.1:8444`) presenting the **Origin
+  Certificate**, reached through the 443 mux on the `www.DOMAIN` SNI. Port-free,
+  trusted edge cert, origin IP hidden.
 
 The token (32 hex chars) is generated once and persisted in `proxy-state.json`
 so the subscribe URL is stable across re-runs. The self-signed cert is
 regenerated automatically when the server IP changes (`CertHasIPSAN` check).
-Clients must enable skip-cert-verify for the HTTPS URL.
 
 ## Safety
 

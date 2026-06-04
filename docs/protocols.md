@@ -10,14 +10,16 @@
 | TUIC v5        | ❌         | ✅ Rust fp   | ✅ good     | —          |
 | Hysteria2      | ❌         | ✅ Rust fp   | ⚠️ server   | ✅ **best**|
 | ShadowTLS v3   | ❌         | ❌           | ✅ **only** | —          |
+| VLESS+WS+TLS   | ✅ **only**| ❌           | ❌          | —          |
 | Salamander obfs| —          | ✅           | —           | ✅ best    |
 
 **Assignment rules derived from this matrix:**
-- XHTTP configs → xray exclusively
+- XHTTP configs → xray exclusively (and **not** Cloudflare-frontable — CF Free buffers responses; disabled by default)
 - AnyTLS → prefer shoes (best Rust impl), then sing-box; not xray
 - TUIC → shoes (Rust) + sing-box; not xray
-- Hysteria2 server → standalone binary (reference); shoes Rust as secondary
+- Hysteria2 server → standalone binary (reference); shoes Rust Hy2/TUIC disabled by default (redundant; current shoes rejects their config)
 - ShadowTLS → sing-box exclusively
+- VLESS+WS+TLS → xray only, **the one shape that traverses Cloudflare** (REALITY and UDP cannot — CF terminates TLS at its edge and won't proxy arbitrary UDP)
 
 ## Bypass layer coverage
 
@@ -29,6 +31,7 @@
 | QUIC (loss-tolerant UDP)     | Hysteria2 standalone + shoes Rust        |
 | QUIC (standard h3 stack)     | TUIC v5 via shoes + singbox              |
 | TLS-mimic (blocks deep DPI)  | ShadowTLS v3 via singbox                 |
+| CDN-fronted (IP-independent) | VLESS+WS+TLS via xray behind Cloudflare  |
 | Full-tunnel VPN              | fptn                                     |
 | ML-resistant tunnel          | mieru (no fingerprint)                   |
 | Obfuscated WireGuard         | AmneziaWG (Russia-grade)                 |
@@ -51,10 +54,12 @@ xray (primary workhorse), non-www variants to shoes (Rust backup).
 ## Hysteria2 choice
 
 The standalone `hysteria` binary is the reference implementation with the most
-complete Salamander obfuscation and brutal CC. Use it as the primary Hysteria2
-server. shoes Rust Hysteria2 (`port 36713`) is a secondary with a different
-binary fingerprint — useful as a failover and for clients that try multiple
-endpoints automatically.
+complete Salamander obfuscation and brutal CC — the primary (and now only)
+Hysteria2 server. shoes' Rust Hysteria2/TUIC inbounds are **disabled by default**:
+current shoes rejects their config (a top-level `tls:` key it no longer accepts),
+and they duplicate the standalone hysteria + sing-box TUIC anyway. Note that all
+Hysteria2/TUIC are UDP/QUIC and fail wholesale where the operator throttles UDP
+(e.g. Irancell), independent of the server — keep TCP shapes as the real fallback.
 
 ## REALITY SNI selection rules
 
@@ -68,23 +73,26 @@ endpoints automatically.
 
 ## Subscribe URLs
 
-Three URLs are produced per deployment:
+Two tiers are produced per deployment, each in two formats:
 
-| URL | Format | Notes |
-|-----|--------|-------|
-| `https://SERVER-IP:8443/s/TOKEN` | base64 URI list (primary) | self-signed cert — enable skip-cert-verify in client |
-| `https://SERVER-IP:8443/sb/TOKEN` | sing-box JSON outbound list | import directly into husi/exclave/sing-box |
-| `http://SERVER-IP/s/TOKEN` | base64 URI list (fallback) | plain HTTP, no cert required |
+| URL | Format | Best for |
+|-----|--------|----------|
+| `https://www.DOMAIN/sb/TOKEN` | sing-box JSON (primary, CF) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru + AmneziaWG** |
+| `https://www.DOMAIN/s/TOKEN` | base64 URI list (primary, CF) | v2rayNG/N · Streisand · Shadowrocket — URI configs only |
+| `https://SERVER-IP:2053/sb/TOKEN` | sing-box JSON (fallback) | direct-IP, self-signed — skip-cert-verify |
+| `https://SERVER-IP:2053/s/TOKEN` | base64 URI list (fallback) | direct-IP, self-signed |
+| `http://SERVER-IP/s/TOKEN` | base64 over plain HTTP | no cert required anywhere |
 
-**Certificate:** a self-signed ECDSA P-256 cert is generated at setup time with
-the server IP as both CN and IP SAN. nginx serves it on port 8443. Since it is
-self-signed (not CA-signed), clients must enable skip-cert-verify / insecure mode
-when importing the HTTPS subscription URL. The cert is regenerated automatically
-if the server IP changes.
+**Primary (Cloudflare):** when a CDN domain is set, the subscription is served on
+`www.DOMAIN` over 443 via Cloudflare — port-free, **trusted edge cert** (no
+skip-verify), origin IP hidden. The origin presents the Cloudflare **Origin
+Certificate** (install via `ngray domain cert`).
 
-**Sing-box JSON** endpoint (`/sb/`) is served only over HTTPS and contains a
-proper dual-outbound structure for ShadowTLS (shadowtls + shadowsocks chained)
-and full xhttp transport for VLESS+XHTTP entries.
+**Fallback (direct IP):** a self-signed ECDSA P-256 cert (server IP as CN + IP
+SAN) on port 2053; clients enable skip-cert-verify or pin the printed `pinSHA256`.
+Regenerated automatically if the server IP changes.
 
-If a `front_sni` is set in config, it is added as a DNS SAN to the certificate
-(useful if DNS resolves the SNI hostname to the server IP).
+**Sing-box JSON** (`/sb/`) is the only format carrying **mieru** (`type: mieru`)
+and **AmneziaWG** (`type: wireguard` + junk params) — they have no share URI — plus
+the dual-outbound ShadowTLS chain and an `auto` (urltest) + `select` group for
+automatic failover. The base64 list (`/s/`) carries only URI-expressible configs.

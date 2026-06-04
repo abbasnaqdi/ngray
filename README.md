@@ -55,6 +55,7 @@ No single VPS IP reliably crosses both MCI and Irancell at the same time. MCI us
 | QUIC + obfuscation | Hysteria2 + Salamander | standalone + shoes Rust | Beats 50% packet loss on MTN |
 | QUIC standard stack | TUIC v5 | shoes Rust, sing-box | h3 ALPN; different from hy2 |
 | TLS mimic | ShadowTLS v3 | sing-box only | Proxies real TLS handshake to live site |
+| CDN-fronted | VLESS + WS + TLS | xray (via Cloudflare) | IP-independent: survives a direct-IP blacklist |
 | Full-tunnel VPN | fptn | — | Token-based fallback |
 | ML-resistant tunnel | mieru | — | No protocol fingerprint (China/Russia) |
 | Obfuscated WireGuard | AmneziaWG | — | Junk headers; Russia-grade |
@@ -74,13 +75,23 @@ The detailed reasoning is in [docs/protocols.md](docs/protocols.md) and [docs/re
 make package
 
 # Upload and run
-scp -r pkg/release/ root@SERVER:/opt/ngray/
+scp -r pkg/release/ root@SERVER:/root/ngray/
 ssh root@SERVER
-cd /opt/ngray
+cd /root/ngray
 sudo ./ngray                          # → TUI, choose Server setup / repair
 ```
 
-`pkg/release/` contains the binary, a ready-to-run `config.yml` and the SNI candidate list. No editing needed for the first run — auto-SNI picks optimal SNIs for your VPS location.
+`pkg/release/` contains the binary, `config.example.yml` (reference) and the SNI
+candidate list. It deliberately ships **no** `config.yml`, so the first
+`server setup` takes the fresh-install path and **auto-selects optimal SNIs**
+from the server's own vantage; the generated `config.yml` then survives later
+deploys. No editing needed for the first run.
+
+One-command deploy (build → ship → provision, preserving `proxy-state.json`):
+
+```bash
+bash scripts/deploy.sh [ssh-host]     # default host: your-host
+```
 
 ### Or install locally
 
@@ -111,6 +122,8 @@ ngray sni test rust-lang.org          # check if an SNI is REALITY-fit
 | `client singbox` | print the sing-box client JSON bundle (with auto-failover groups) |
 | `sni test [host…]` | REALITY fitness (TLS1.3 + h2 + X25519) + latency, two-phase sweep (scales to 1000+) |
 | `sni discover` | scan /24 near your server to find nearby REALITY-fit IPs |
+| `domain check <d>` | is a domain a working Cloudflare-fronted path to this server? (DNS via 1.1.1.1/9.9.9.9/AdGuard, CF edge status, origin TLS) with scenario advice |
+| `domain cert <crt> <key>` | install a Cloudflare Origin Certificate so the WS/subscription domain serves valid TLS (fixes CF error 525) |
 | `scan` | CDN edge-IP scanner — find IPs that survive MCI (Akamai/Cloudflare/Fastly) |
 | `dns validate` | find working DNS resolvers from this network |
 | `dns doh [n]` | benchmark DoH providers by latency |
@@ -136,15 +149,24 @@ Generated links import into:
 | **AmneziaVPN** | All | For AmneziaWG configs (import .conf) |
 | **mieru / nekobox** | All | For mieru configs (import JSON) |
 
-Three subscribe URLs are produced (also printed by `client links`):
+`client links` prints the subscribe URLs in two tiers — pick by format and by whether you've set up a Cloudflare domain (optional, see below):
 
-| URL | Contents |
+**Primary — via Cloudflare** (when a CDN domain is configured): served on the domain over port 443, so there is **no port in the URL**, the cert is Cloudflare's **trusted edge cert** (no skip-verify), and your **origin IP is hidden**.
+
+| URL | Format | Best for |
+|---|---|---|
+| `https://www.DOMAIN/sb/TOKEN` | **sing-box JSON** (auto + select groups) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru + AmneziaWG** |
+| `https://www.DOMAIN/s/TOKEN` | base64 URI list | v2rayNG · v2rayN · Streisand · Shadowrocket — URI configs (no mieru/AmneziaWG) |
+
+**Fallback — direct IP** (always produced; use when the domain is blocked): self-signed TLS, so enable skip-cert-verify or pin the printed `pinSHA256`.
+
+| URL | Format |
 |---|---|
-| `http://SERVER-IP/s/TOKEN` | base64 URI list, plain HTTP — no cert errors, works everywhere |
-| `https://SERVER-IP:2053/s/TOKEN` | same list over self-signed TLS (enable skip-cert-verify, or pin the printed `pinSHA256`) |
-| `https://SERVER-IP:2053/sb/TOKEN` | **sing-box JSON** with an `auto` (urltest) + `select` group — import this into husi/nekobox/exclave and pick `auto` to auto-route through whichever endpoints survive |
+| `https://SERVER-IP:2053/sb/TOKEN` | sing-box JSON |
+| `https://SERVER-IP:2053/s/TOKEN` | base64 URI list |
+| `http://SERVER-IP/s/TOKEN` | base64 over plain HTTP (no cert errors anywhere) |
 
-Add a URL once in any app; all configs appear and update automatically. mieru and AmneziaWG have no share-link URI — copy their config blocks from `client links` (mieru JSON → nekobox; AmneziaWG `.conf` → AmneziaVPN).
+Add one URL in any app; all configs appear and auto-update, and the sing-box `auto` group health-checks every endpoint so dead ones are skipped automatically. **mieru and AmneziaWG have no share-link URI**, so they ride only the **sing-box JSON** bundle (`/sb/`) — import that one in NekoBox/husi to get them. The raw mieru JSON / AmneziaWG `.conf` are also printed by `client links` for the standalone mieru / AmneziaVPN apps.
 
 ---
 
@@ -155,6 +177,8 @@ Add a URL once in any app; all configs appear and update automatically. mieru an
 Key facts:
 - Every REALITY SNI across all cores must be unique (nginx routes one SNI to one backend).
 - `www.X` and `X` count as separate SNIs — use both for double coverage.
+- Auto-SNI consumes essentially the whole REALITY-fit pool (hundreds of configs), quality-first: the proven tier and low-latency HTTP-200 destinations lead, slow hosts are dropped. `subscription.front_sni` is given its own dedicated SNI so it never collides with a route.
+- `cores.xray.cdn` enables optional Cloudflare fronting (domain WS proxy + CF-served subscription) — see [Cloudflare fronting](#cloudflare-fronting-optional-ip-independent-fallback).
 - Cores without nginx routing (hysteria2, TUIC, ShadowTLS, fptn, mieru, AmneziaWG) have their own public ports.
 - `proxy-state.json` (0600) persists all generated keys, credentials and the subscribe token — re-running setup is idempotent.
 
@@ -172,6 +196,46 @@ fallback only.
 binary or editing the pool does **not** re-pick SNIs on its own — run **Re-select
 SNIs** in the TUI (rewrites `config.yml` with the current tiered ranking), then
 re-run **Server setup**; or delete `config.yml` and run setup.
+
+---
+
+## Cloudflare fronting (optional, IP-independent fallback)
+
+Every direct-IP config — REALITY, AnyTLS, Hysteria2, etc. — dies at once the day
+the censor blacklists your VPS IP. Putting one path behind Cloudflare fixes that:
+the client connects to a Cloudflare edge IP (which the censor can't blanket-block
+without huge collateral), and CF proxies to your origin. Configure a domain under
+`cores.xray.cdn` and ngray adds:
+
+- **A WebSocket proxy** on `DOMAIN` — `VLESS + WS + TLS`, served behind the same
+  443 SNI-mux, terminating TLS with a Cloudflare **Origin Certificate**. This is
+  the config that survives a direct-IP block.
+- **The subscription** on `www.DOMAIN` — served on 443 via Cloudflare, so the
+  subscribe URL has no port, a trusted cert, and a hidden origin IP.
+
+What can and cannot traverse Cloudflare:
+
+- ✅ **VLESS + WebSocket + TLS** — works on the Cloudflare **Free** plan.
+- ❌ **REALITY** — no. CF terminates TLS at its edge, breaking REALITY's
+  origin-handshake authentication. REALITY stays direct-IP only.
+- ❌ **Hysteria2 / TUIC (UDP/QUIC)** — no. CF doesn't proxy arbitrary UDP.
+- ❌ **XHTTP / SplitHTTP** — not on Free (CF buffers responses); use WS.
+
+Setup (one-time):
+
+1. Point the domain at your server in Cloudflare DNS, **Proxied** (orange cloud).
+   A `www` CNAME → root, also proxied, hosts the subscription.
+2. Cloudflare → SSL/TLS → **Origin Server → Create Certificate**, then on the
+   server: `ngray domain cert origin.crt origin.key`.
+3. Cloudflare → SSL/TLS → mode = **Full (strict)**.
+4. `ngray server setup`, then verify: `ngray domain check DOMAIN` → expect
+   `CF_PROXIED_HEALTHY`. (`525` means the origin cert isn't installed yet.)
+
+`ngray domain check` is scenario-aware: it resolves via public DNS (1.1.1.1 /
+9.9.9.9 / AdGuard, bypassing a poisoned local resolver), reads the Cloudflare
+edge status, tests the origin TLS handshake, and tells you exactly which paths
+the domain covers — so you know whether you're protected for an IP block, an
+SNI block, or neither.
 
 ---
 

@@ -10,12 +10,13 @@ The Makefile reads it automatically — no need to pass `VERSION=` anywhere.
 # Build locally
 make build
 
-# Package for deployment (creates pkg/release/ with config.yml ready to run)
+# Package for deployment (pkg/release/: binary + config.example.yml + SNI list;
+# ships NO config.yml so the first setup auto-selects SNIs)
 make package
 
-# Deploy
-scp -r pkg/release/ root@SERVER:/opt/ngray/
-ssh root@SERVER "cd /opt/ngray && sudo ./ngray"
+# Deploy (or: bash scripts/deploy.sh [ssh-host])
+scp -r pkg/release/ root@SERVER:/root/ngray/
+ssh root@SERVER "cd /root/ngray && sudo ./ngray"
 
 # Cross-compile + publish GitHub release
 make release
