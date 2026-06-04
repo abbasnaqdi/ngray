@@ -188,8 +188,9 @@ func cmdServer(args []string) error {
 		if err != nil {
 			return fmt.Errorf("load state: %w", err)
 		}
-		cfg, _ := config.LoadOrDefault(config.Path())
-		return server.RenderClient(os.Stdout, st, cfg)
+		// Print only the subscribe URLs here; the full per-config dump is one
+		// command away (`ngray client links`) and just clutters setup output.
+		return server.RenderSubscribe(os.Stdout, st)
 	case "status":
 		return cmdStatus()
 	default:

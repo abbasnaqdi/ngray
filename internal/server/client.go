@@ -82,41 +82,62 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config) error {
 		}
 	}
 
-	if (d.SubURL != "" || d.SubDomainURL != "") && emit.allows("subscription") {
-		fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
-
-		// Primary: Cloudflare-fronted on the domain (no port, trusted edge cert,
-		// origin IP hidden). Two formats; pick by client.
-		if d.SubDomainSingboxURL != "" || d.SubDomainURL != "" {
-			fmt.Fprintf(w, "\n  Primary — via Cloudflare (no port, trusted cert, IP hidden):\n")
-			if d.SubDomainSingboxURL != "" {
-				fmt.Fprintf(w, "    sbJSON  %s\n", d.SubDomainSingboxURL)
-				fmt.Fprintf(w, "            → NekoBox/husi · sing-box · Hiddify  (full set, incl. mieru + AmneziaWG)\n")
-			}
-			if d.SubDomainURL != "" {
-				fmt.Fprintf(w, "    base64  %s\n", d.SubDomainURL)
-				fmt.Fprintf(w, "            → v2rayNG · v2rayN · Streisand · Shadowrocket  (URI list; no mieru/AmneziaWG)\n")
-			}
-		}
-
-		// Fallback: direct IP (self-signed) for when the domain is blocked.
-		if d.SubURL != "" || d.SubHTTPURL != "" {
-			fmt.Fprintf(w, "\n  Fallback — direct IP (use if the domain is blocked; self-signed → enable allow-insecure):\n")
-			if d.SubSingboxURL != "" {
-				fmt.Fprintf(w, "    sbJSON  %s\n", d.SubSingboxURL)
-			}
-			if d.SubURL != "" {
-				fmt.Fprintf(w, "    base64  %s\n", d.SubURL)
-			}
-			if d.SubHTTPURL != "" {
-				fmt.Fprintf(w, "    HTTP    %s  (plain; no TLS warning)\n", d.SubHTTPURL)
-			}
-			if d.SubCertFingerprint != "" {
-				fmt.Fprintf(w, "    cert    SHA256:%s  (proxy clients pin this)\n", d.SubCertFingerprint)
-			}
-		}
+	if emit.allows("subscription") {
+		writeSubscribe(w, d)
 	}
 	return nil
+}
+
+// RenderSubscribe writes only the subscribe URLs — the concise summary shown
+// after `ngray server setup`. The full per-config share links and the sing-box
+// JSON dump stay behind `ngray client links`, so setup ends clean.
+func RenderSubscribe(w io.Writer, st *state.State) error {
+	if st.Deploy == nil || (st.Deploy.SubURL == "" && st.Deploy.SubDomainURL == "") {
+		return fmt.Errorf("no subscription found — run `ngray server setup` first")
+	}
+	writeSubscribe(w, st.Deploy)
+	fmt.Fprintf(w, "\nAll individual links + sing-box JSON:  ngray client links\n")
+	return nil
+}
+
+// writeSubscribe prints the subscribe block: primary (Cloudflare-fronted) and
+// the direct-IP fallback. Shared by RenderClient and RenderSubscribe.
+func writeSubscribe(w io.Writer, d *state.Deploy) {
+	if d.SubURL == "" && d.SubDomainURL == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
+
+	// Primary: Cloudflare-fronted on the domain (no port, trusted edge cert,
+	// origin IP hidden). Two formats; pick by client.
+	if d.SubDomainSingboxURL != "" || d.SubDomainURL != "" {
+		fmt.Fprintf(w, "\n  Primary — via Cloudflare (no port, trusted cert, IP hidden):\n")
+		if d.SubDomainSingboxURL != "" {
+			fmt.Fprintf(w, "    sbJSON  %s\n", d.SubDomainSingboxURL)
+			fmt.Fprintf(w, "            → NekoBox/husi · sing-box · Hiddify  (full set, incl. mieru + AmneziaWG)\n")
+		}
+		if d.SubDomainURL != "" {
+			fmt.Fprintf(w, "    base64  %s\n", d.SubDomainURL)
+			fmt.Fprintf(w, "            → v2rayNG · v2rayN · Streisand · Shadowrocket  (URI list; no mieru/AmneziaWG)\n")
+		}
+	}
+
+	// Fallback: direct IP (self-signed) for when the domain is blocked.
+	if d.SubURL != "" || d.SubHTTPURL != "" {
+		fmt.Fprintf(w, "\n  Fallback — direct IP (use if the domain is blocked; self-signed → enable allow-insecure):\n")
+		if d.SubSingboxURL != "" {
+			fmt.Fprintf(w, "    sbJSON  %s\n", d.SubSingboxURL)
+		}
+		if d.SubURL != "" {
+			fmt.Fprintf(w, "    base64  %s\n", d.SubURL)
+		}
+		if d.SubHTTPURL != "" {
+			fmt.Fprintf(w, "    HTTP    %s  (plain; no TLS warning)\n", d.SubHTTPURL)
+		}
+		if d.SubCertFingerprint != "" {
+			fmt.Fprintf(w, "    cert    SHA256:%s  (proxy clients pin this)\n", d.SubCertFingerprint)
+		}
+	}
 }
 
 // SingboxJSON returns the sing-box client config for the last deployment.
