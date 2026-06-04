@@ -11,6 +11,16 @@
 #                     Avoid Google domains (aggressive rate-limiting on chunked h2)
 #   AnyTLS / TUIC   — any OK SNI; REALITY keypair authenticates, SNI is cosmetic
 
+# ── Blackout survivors (allowlisted by Iran even during a national shutdown) ─
+# Jan 2026 shutdown ran a protocol+SNI allowlist: only HTTPS to an explicit set
+# of domains crossed (Google, GitHub, Apple, Samsung, Microsoft, ChatGPT/OpenAI…).
+# REALITY survives a blackout only when its SNI is one of these. All verified
+# REALITY-fit (TLS1.3 + h2 + X25519); Bing/PlayStation/play.google.com are NOT.
+chatgpt.com
+openai.com
+api.openai.com
+apps.apple.com
+
 # ── Cloudflare CDN (best for XHTTP; global, reliable h2, no rate-limiting) ──
 pypi.org
 npmjs.com
