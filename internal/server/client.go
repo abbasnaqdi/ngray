@@ -82,19 +82,38 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config) error {
 		}
 	}
 
-	if d.SubURL != "" && emit.allows("subscription") {
+	if (d.SubURL != "" || d.SubDomainURL != "") && emit.allows("subscription") {
 		fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
-		if d.SubHTTPURL != "" {
-			fmt.Fprintf(w, "  HTTP   %s\n", d.SubHTTPURL)
-			fmt.Fprintf(w, "         (browser-friendly; no TLS warning)\n")
+
+		// Primary: Cloudflare-fronted on the domain (no port, trusted edge cert,
+		// origin IP hidden). Two formats; pick by client.
+		if d.SubDomainSingboxURL != "" || d.SubDomainURL != "" {
+			fmt.Fprintf(w, "\n  Primary — via Cloudflare (no port, trusted cert, IP hidden):\n")
+			if d.SubDomainSingboxURL != "" {
+				fmt.Fprintf(w, "    sbJSON  %s\n", d.SubDomainSingboxURL)
+				fmt.Fprintf(w, "            → NekoBox/husi · sing-box · Hiddify  (full set, incl. mieru + AmneziaWG)\n")
+			}
+			if d.SubDomainURL != "" {
+				fmt.Fprintf(w, "    base64  %s\n", d.SubDomainURL)
+				fmt.Fprintf(w, "            → v2rayNG · v2rayN · Streisand · Shadowrocket  (URI list; no mieru/AmneziaWG)\n")
+			}
 		}
-		fmt.Fprintf(w, "  HTTPS  %s\n", d.SubURL)
-		if d.SubCertFingerprint != "" {
-			fmt.Fprintf(w, "  cert   SHA256:%s\n", d.SubCertFingerprint)
-			fmt.Fprintf(w, "         (self-signed — browsers always warn; proxy clients use pinSHA256)\n")
-		}
-		if d.SubSingboxURL != "" {
-			fmt.Fprintf(w, "  sbJSON %s\n", d.SubSingboxURL)
+
+		// Fallback: direct IP (self-signed) for when the domain is blocked.
+		if d.SubURL != "" || d.SubHTTPURL != "" {
+			fmt.Fprintf(w, "\n  Fallback — direct IP (use if the domain is blocked; self-signed → enable allow-insecure):\n")
+			if d.SubSingboxURL != "" {
+				fmt.Fprintf(w, "    sbJSON  %s\n", d.SubSingboxURL)
+			}
+			if d.SubURL != "" {
+				fmt.Fprintf(w, "    base64  %s\n", d.SubURL)
+			}
+			if d.SubHTTPURL != "" {
+				fmt.Fprintf(w, "    HTTP    %s  (plain; no TLS warning)\n", d.SubHTTPURL)
+			}
+			if d.SubCertFingerprint != "" {
+				fmt.Fprintf(w, "    cert    SHA256:%s  (proxy clients pin this)\n", d.SubCertFingerprint)
+			}
 		}
 	}
 	return nil

@@ -37,6 +37,22 @@ type Config struct {
 	Sink   int // loopback default backend (returns 444)
 	Routes []Route
 	Sub    *Subscription
+	CDNSub *CDNSub
+}
+
+// CDNSub serves the subscription on a Cloudflare-proxied domain SNI over the
+// 443 mux: the stream block routes Domain to 127.0.0.1:Backend, where this
+// loopback TLS server presents the origin cert (so CF Full(strict) is happy)
+// and serves /s/ and /sb/. Result: a port-free, CF-fronted, valid-cert
+// subscribe URL with the origin IP hidden.
+type CDNSub struct {
+	Domain      string
+	Backend     int
+	CertFile    string
+	KeyFile     string
+	Dir         string
+	BundleFile  string
+	SingboxFile string
 }
 
 // Render produces the full nginx.conf.
@@ -141,6 +157,25 @@ events {
     }
 `)
 		}
+	}
+
+	// Cloudflare-fronted subscription: loopback TLS server with the origin cert,
+	// reached via the 443 stream mux on the CDNSub.Domain SNI.
+	if c.CDNSub != nil {
+		fmt.Fprintf(&b, `
+    server {
+        listen 127.0.0.1:%d ssl;
+        ssl_certificate     %s;
+        ssl_certificate_key %s;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        server_name %s;
+        root %s;
+        location ~ ^/s/  { default_type text/plain;      try_files /%s =404; }
+        location ~ ^/sb/ { default_type application/json; try_files /%s =404; }
+        location / { return 404; }
+    }
+`, c.CDNSub.Backend, c.CDNSub.CertFile, c.CDNSub.KeyFile, c.CDNSub.Domain,
+			c.CDNSub.Dir, c.CDNSub.BundleFile, c.CDNSub.SingboxFile)
 	}
 
 	b.WriteString("}\n")

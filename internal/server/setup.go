@@ -185,6 +185,26 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 			deploy.SubCertFingerprint = fp
 		}
 		o.log("subscription: HTTPS port %d, HTTP port %d", httpsPort, sub.HTTPPort)
+
+		// Also serve the subscription behind Cloudflare on the CDN domain
+		// (no port, valid edge cert, origin IP hidden). Reuses the XHTTP
+		// subdomain (www.…), routed via the 443 mux to a loopback TLS server
+		// with the origin cert. Requires the origin cert to be installed.
+		if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
+			subDomain := cdn.XHTTPDomain()
+			if subDomain != "" && fileExists(cdn.CertFile) && fileExists(cdn.KeyFile) {
+				const subBackend = 8444
+				ngCfg.Routes = append(ngCfg.Routes, nginx.Route{SNI: subDomain, Backend: subBackend})
+				ngCfg.CDNSub = &nginx.CDNSub{
+					Domain: subDomain, Backend: subBackend,
+					CertFile: cdn.CertFile, KeyFile: cdn.KeyFile,
+					Dir: sub.Dir, BundleFile: "bundle", SingboxFile: "singbox-bundle.json",
+				}
+				deploy.SubDomainURL = "https://" + subDomain + "/s/" + token
+				deploy.SubDomainSingboxURL = "https://" + subDomain + "/sb/" + token
+				o.log("subscription also via Cloudflare: https://%s/s/<token> (no port)", subDomain)
+			}
+		}
 	}
 
 	if err := writeNginx(ctx, sys, ngCfg, o); err != nil {
@@ -295,6 +315,8 @@ func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options)
 	}
 	return nil
 }
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func restartServices(ctx context.Context, sys *system.Env, cfg *config.Config, o Options) {
 	for _, core := range cores.Registry() {

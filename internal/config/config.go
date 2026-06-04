@@ -178,7 +178,10 @@ func Default() *Config {
 				},
 				XHTTP: []XHTTP{{SNI: "www.python.org"}},
 				CDN: &CDN{
-					Enabled: true, Domain: "example.com", WS: true, XHTTP: true,
+					// WS proxy on Domain; www.<Domain> serves the CF-fronted
+					// subscription (no port). XHTTP disabled — it can't traverse
+					// Cloudflare Free (response buffering breaks SplitHTTP).
+					Enabled: true, Domain: "example.com", WS: true, XHTTP: false,
 					CertFile: "/etc/ngray/cf-origin.crt", KeyFile: "/etc/ngray/cf-origin.key",
 				},
 			},
@@ -300,14 +303,9 @@ func (c *Config) CDNDomains() []string {
 	if cdn == nil || !cdn.Enabled || cdn.Domain == "" {
 		return nil
 	}
-	var out []string
-	if cdn.WS {
-		out = append(out, cdn.Domain)
-	}
-	if cdn.XHTTP {
-		out = append(out, cdn.XHTTPDomain())
-	}
-	return out
+	// Domain serves the WS proxy; XHTTPDomain (www) serves the CF-fronted
+	// subscription. Both are distinct routed SNIs on the 443 mux.
+	return []string{cdn.Domain, cdn.XHTTPDomain()}
 }
 
 // RouteSNIs returns every SNI that nginx multiplexes to a TCP core backend.
