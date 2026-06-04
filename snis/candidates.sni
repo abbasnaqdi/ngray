@@ -199,6 +199,62 @@ ovh.com
 contabo.com
 datapacket.com
 
+# ── AI platforms & APIs (ChatGPT-class; heavily used in Iran, low DPI suspicion) ─
+deepseek.com
+chat.deepseek.com
+api.deepseek.com
+anthropic.com
+claude.ai
+api.anthropic.com
+huggingface.co
+x.ai
+api.x.ai
+perplexity.ai
+mistral.ai
+api.mistral.ai
+groq.com
+api.groq.com
+together.ai
+openrouter.ai
+replicate.com
+cohere.com
+generativelanguage.googleapis.com
+
+# ── Cloud / dev infrastructure (high-collateral; costly for a censor to block) ─
+docker.io
+registry-1.docker.io
+ghcr.io
+bunny.net
+gcore.com
+keycdn.com
+googleusercontent.com
+ibm.com
+sap.com
+
+# ── SaaS / productivity (plausible everyday traffic) ─────────────────────────
+notion.so
+figma.com
+adobe.com
+spotify.com
+web.whatsapp.com
+en.wikipedia.org
+
+# ── Education / academic (open, non-suspicious, REALITY-fit) ──────────────────
+ocw.mit.edu
+academia.edu
+udacity.com
+jstor.org
+
+# ── Crypto data & wallets (informational; widely used in Iran, usually open) ──
+tradingview.com
+coingecko.com
+coinmarketcap.com
+etherscan.io
+blockchain.com
+metamask.io
+trustwallet.com
+ledger.com
+
 #@extended
 # ═══════════════════════════════════════════════════════════════════════════
 # EXTENDED pool — everything BELOW the "#@extended" marker is a FALLBACK tier.
@@ -305,7 +361,6 @@ fonts.bunny.net
 esm.sh
 skypack.dev
 cdn.tailwindcss.com
-unpkg.com
 cdn.datatables.net
 
 # ── Developer platforms & docs (widely whitelisted) ──────────────────────────
@@ -327,7 +382,6 @@ maven.apache.org
 repo1.maven.org
 search.maven.org
 mvnrepository.com
-gradle.org
 go.dev
 proxy.golang.org
 sum.golang.org
@@ -344,7 +398,6 @@ typescriptlang.org
 vuejs.org
 angular.dev
 svelte.dev
-react.dev
 nextjs.org
 nuxt.com
 remix.run
@@ -477,7 +530,6 @@ springer.com
 ieee.org
 acm.org
 researchgate.net
-mozilla.org
 developer.mozilla.org
 w3.org
 whatwg.org
@@ -491,3 +543,28 @@ iana.org
 unity.com
 unrealengine.com
 godotengine.org
+
+# ── Crypto exchanges (REALITY-fit, but the SNI itself may be filtered on some
+#    Iranian operators — kept as fallback variety, not a primary dest) ─────────
+binance.com
+bybit.com
+okx.com
+kucoin.com
+mexc.com
+htx.com
+bingx.com
+kraken.com
+coinbase.com
+bitfinex.com
+bitstamp.net
+
+# ── Chinese / Russian / Azerbaijani (regional shape variety vs ML fingerprinting)
+tiktok.com
+taobao.com
+bilibili.com
+yandex.com
+yandex.ru
+vk.com
+rambler.ru
+kaspersky.com
+azal.az
