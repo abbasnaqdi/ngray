@@ -68,6 +68,12 @@ func (m Model) viewMenu() string {
 	}
 
 	b.WriteString("\n" + dimStyle.Render(strings.Repeat("─", 54)) + "\n")
+	// Explain the highlighted item so the menu is self-documenting.
+	if m.cursor >= 0 && m.cursor < len(m.items) {
+		if d := m.items[m.cursor].desc; d != "" {
+			b.WriteString(dimStyle.Render(wrapWords("  "+d, 54)) + "\n\n")
+		}
+	}
 	b.WriteString(mutedStyle.Render("  ↑↓ navigate  ·  1-9 jump  ·  enter run  ·  q quit"))
 	return panel.Render(b.String())
 }
@@ -153,13 +159,13 @@ func formTextRow(f setupForm, fieldIdx int, label string) string {
 	switch fieldIdx {
 	case formFieldIP:
 		if focused && f.editing {
-			val = accentStyle.Render(f.editBuf+"█")
+			val = accentStyle.Render(f.editBuf + "█")
 		} else {
 			val = dimStyle.Render(f.ipVal)
 		}
 	case formFieldPort:
 		if focused && f.editing {
-			val = accentStyle.Render(f.editBuf+"█")
+			val = accentStyle.Render(f.editBuf + "█")
 		} else {
 			val = dimStyle.Render(f.portVal)
 		}
@@ -229,6 +235,28 @@ func (m Model) joinWrapped() string {
 		out = append(out, wrapLine(l, w))
 	}
 	return joinLines(out)
+}
+
+// wrapWords wraps s at word boundaries to width, keeping any leading spaces of
+// s as the indent on continuation lines (so a "  " prefix stays aligned).
+func wrapWords(s string, width int) string {
+	indent := s[:len(s)-len(strings.TrimLeft(s, " "))]
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return s
+	}
+	var b strings.Builder
+	line := indent + words[0]
+	for _, w := range words[1:] {
+		if len(line)+1+len(w) > width {
+			b.WriteString(line + "\n")
+			line = indent + w
+		} else {
+			line += " " + w
+		}
+	}
+	b.WriteString(line)
+	return b.String()
 }
 
 func wrapLine(s string, width int) string {
