@@ -16,6 +16,25 @@ Captured from research while building ngray, to justify the design and guide fut
   pressuring even REALITY. The defensive answer is *shape diversity* — exactly ngray's many-
   `(SNI × core × transport)` fan-out — so no single detectable pattern carries all traffic.
 
+## Iran Jan 2026 — the allowlist shutdown
+The January 2026 blackout (weeks long, partially restored May 2026) was a **protocol +
+SNI allowlist** at the national gateway, not a BGP withdrawal: only DNS/53, HTTP/80 and
+HTTPS/443 to an **explicit domain allowlist** (Google, Bing, GitHub, Apple, Samsung,
+ChatGPT/OpenAI, Play/App Store, PlayStation…) crossed; all UDP and any other SNI were
+dropped/RST. Design consequences now baked into ng-ray:
+- **UDP cores are useless in this mode** (Hysteria2/TUIC/AmneziaWG all dropped). Keep
+  TCP/443 REALITY as the load-bearing shape.
+- **REALITY survives only with an allowlisted SNI** — the pool gained a *blackout-
+  survivor* tier (ChatGPT/OpenAI, App Store, AI/dev-infra) and the sing-box bundle a
+  `blackout` urltest group of the TCP-REALITY/ShadowTLS shapes that send a borrowed
+  allowlistable SNI. CF-WS survives an IP block but **not** the SNI allowlist.
+- For REALITY the **SNI is camouflage** — the client never reaches the real site, so a
+  domain that *sanctions* Iran (e.g. ChatGPT) still works as an SNI, and is in fact the
+  best blackout dest because the censor permits it. What it can't survive is the censor
+  filtering that domain inside Iran.
+- Off-VPS lifelines during a full blackout (out of ng-ray's scope): Starlink, BLE mesh
+  (Bitchat / its Noghteha fork). See [research-iran-dpi.md](research-iran-dpi.md).
+
 ## Cores worth tracking (beyond xray/shoes/sing-box)
 - **mihomo (clash-meta)** — dominant *client* kernel on desktop in 2026; server side still xray.
 - **mieru / mita** — strong padding-based obfuscation (TCP/UDP), hard to fingerprint; a different

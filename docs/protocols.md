@@ -94,5 +94,14 @@ Regenerated automatically if the server IP changes.
 
 **Sing-box JSON** (`/sb/`) is the only format carrying **mieru** (`type: mieru`)
 and **AmneziaWG** (`type: wireguard` + junk params) — they have no share URI — plus
-the dual-outbound ShadowTLS chain and an `auto` (urltest) + `select` group for
-automatic failover. The base64 list (`/s/`) carries only URI-expressible configs.
+the dual-outbound ShadowTLS chain and three failover groups:
+
+- `auto` (urltest) — health-checks **every** endpoint, routes the lowest-latency live one.
+- `blackout` (urltest) — the subset that can cross a national protocol+SNI allowlist
+  (Iran, Jan 2026): TCP/443 REALITY + ShadowTLS shapes sending a borrowed allowlistable
+  SNI. Excludes UDP cores (hysteria2/tuic/amneziawg), mieru's side-port, and CF-WS
+  (custom-domain SNI). The default stays `auto`; switch `select` to `blackout` when even
+  UDP is dropped. See [research-iran-dpi.md](research-iran-dpi.md).
+- `select` (selector) — pin a specific endpoint or group, default `auto`.
+
+The base64 list (`/s/`) carries only URI-expressible configs.

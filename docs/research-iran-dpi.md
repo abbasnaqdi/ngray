@@ -29,8 +29,35 @@ across SNIs, cores and transports rather than betting on one config. Validate th
 per operator from a device on that network (server-side `ngray sni test` proves reachability
 and REALITY fitness, not an operator's whitelist membership).
 
+## National allowlist mode (Jan 2026)
+
+The January 2026 shutdown was not a BGP blackout (unlike 2019) but a **protocol +
+SNI allowlist** at the national gateway — weeks long, partially restored May 2026,
+~90% drop in international traffic with IPv4 prefixes still globally routed (filtering
+above the BGP layer). Two facts reshape the per-operator picture above:
+
+- Only **DNS/53, HTTP/80, HTTPS/443 outbound** crossed; everything else was dropped
+  silently. **Every UDP core dies** in this mode — Hysteria2, TUIC and AmneziaWG are
+  gone regardless of operator, not just on Irancell. Only TCP shapes survive.
+- HTTPS crossed **only for an explicit domain allowlist** (Google, Bing, Gmail/Outlook,
+  GitHub, Apple, Samsung, ChatGPT/OpenAI, Play/App Store, PlayStation, Maps/Meet); any
+  other SNI got an injected RST. So **REALITY survives a blackout only when its SNI is
+  one of the allowlisted domains.**
+
+ng-ray's response: the candidate pool carries a **blackout-survivor** set (ChatGPT/
+OpenAI, App Store, plus AI/dev-infra domains the censor tends to permit), and the
+sing-box bundle ships a **`blackout`** urltest group of exactly the TCP/443 REALITY +
+ShadowTLS shapes that send a borrowed allowlistable SNI. Note that CF-fronted WS
+survives an **IP blacklist** but **not** the SNI allowlist — the client still sends the
+custom domain as SNI, which is RST'd. What actually moved data during the full blackout
+was off-VPS: Starlink and BLE mesh (Bitchat / its Iranian fork Noghteha) — out of scope
+for a VPS proxy but worth knowing as the boundary of what this tool can do.
+
 ## Sources
 - net4people/bbs #253 — A report on Iran's GFW (per-operator MCI vs MTN/Rightel behaviour)
 - v2rayNG #5232 — anti-DPI feature requests under Iran filtering conditions
 - apernet/hysteria + sing-box docs — Salamander obfs and brutal congestion control
 - 2026 reporting on MTN-Irancell DPI build-out (Global Voices, National Security News, CNN)
+- arXiv 2603.28753 — *Iran's January 2026 Internet Shutdown* (allowlist mechanism, surviving protocols)
+- IODA / Georgia Tech — comparative report on Iran shutdowns 2019 / 2022 / 2025 / 2026
+- Schneier on Security (Feb 2026) — Tehran's two-tiered internet

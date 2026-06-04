@@ -52,7 +52,10 @@ on 443 — so the subscribe URL is port-free behind Cloudflare with the origin I
 ## Subscription
 
 `/s/<token>` serves the base64 URI list, `/sb/<token>` the sing-box JSON outbound
-list (the only place **mieru** and **AmneziaWG** appear, as they have no URI).
+list (the only place **mieru** and **AmneziaWG** appear, as they have no URI). The
+sing-box bundle adds three failover groups — `auto` (urltest over everything),
+`blackout` (urltest over the TCP/443 REALITY + ShadowTLS subset that survives a
+national SNI allowlist), and `select` (manual pin, default `auto`).
 nginx serves these on up to three listeners:
 
 - **HTTP :80** — plain-text fallback (base64 only)

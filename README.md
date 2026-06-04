@@ -32,12 +32,12 @@ No domain required. No manual SNI selection. No configuration knowledge required
 
 On a fresh Ubuntu VPS, `sudo ./ngray` runs an interactive console. Choose **Server setup**:
 
-1. Sweeps a tiered pool of ~400 candidate SNIs for REALITY fitness — a fast two-phase scan (a cheap probe across every host, then full latency measurement only on the ones that pass) — and assigns the best from a proven, operator-whitelist-friendly **preferred** tier before ever touching the **extended** fallback tier.
+1. Sweeps a tiered pool of ~470 candidate SNIs for REALITY fitness — a fast two-phase scan (a cheap probe across every host, then full latency measurement only on the ones that pass) — and assigns the best from a proven, operator-whitelist-friendly **preferred** tier (now including AI/dev-infra/crypto/education domains and a **blackout-survivor** set Iran allowlists even during a national shutdown) before ever touching the **extended** fallback tier.
 2. Installs every enabled core (`xray`, `shoes`, `sing-box`, `hysteria2`, `fptn`, and optionally `mieru`, `amneziawg`) — with your permission, one by one.
 3. Configures nginx on TCP 443 as an SNI-multiplexer routing different client SNIs to different protocol backends — all invisible on the public interface.
 4. Generates keys, credentials and short-IDs that persist across re-runs.
 5. Applies a lockout-safe firewall (SSH always survives).
-6. Prints every client link plus a subscribe URL. Add the subscribe URL once in your client — all configs appear and auto-update. The sing-box JSON bundle includes an **auto** (urltest) group, so the client health-checks every endpoint and routes through whichever survive your operator that day.
+6. Prints every client link plus a subscribe URL. Add the subscribe URL once in your client — all configs appear and auto-update. The sing-box JSON bundle includes an **auto** (urltest) group, so the client health-checks every endpoint and routes through whichever survive your operator that day — plus a **blackout** group (the TCP/REALITY subset that can cross a national protocol+SNI allowlist) to switch to when even UDP is dropped.
 
 The result is a stack of **9 different protocol shapes** across 4 cores, all on port 443, covering REALITY, XHTTP, AnyTLS, TUIC, ShadowTLS, Hysteria2, plus independent cores for Rust-based TUIC and Hysteria2 — so at least one survives each operator's DPI on any given day.
 
@@ -186,8 +186,11 @@ Key facts:
 
 `snis/candidates.sni` is split by a `#@extended` marker into two tiers. Auto-SNI
 assigns from the **preferred** tier (above the marker — proven CDN/dev/Linux/
-Apple/MS/Samsung/Google domains) and only falls back to the **extended** tier
-when preferred runs out of REALITY-fit hosts. Ranking is by latency *within* a
+Apple/MS/Samsung/Google domains, plus AI platforms/APIs, crypto data/wallets,
+education, and a **blackout-survivor** set Iran allowlists even mid-shutdown:
+ChatGPT/OpenAI, App Store, …) and only falls back to the **extended** tier
+(crypto exchanges, Chinese/Russian/Azerbaijani sites for shape variety) when
+preferred runs out of REALITY-fit hosts. Ranking is by latency *within* a
 tier, so a faster-but-unwhitelisted domain never displaces a proven one. Paste
 your own domains above the marker to prioritise them; below it to keep them as
 fallback only.
