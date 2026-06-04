@@ -106,6 +106,7 @@ func TestSingboxJSONAutoFailover(t *testing.T) {
 	eps := []Endpoint{
 		{Tag: "a", Proto: "vless-vision", Server: "1.2.3.4", Port: 443, SNI: "x", UUID: "u1"},
 		{Tag: "b", Proto: "shadowtls", Server: "1.2.3.4", Port: 2443, SNI: "x", Password: "p", AuthPass: "s", Obfs: "aes-128-gcm"},
+		{Tag: "c", Proto: "hysteria2", Server: "1.2.3.4", Port: 443, SNI: "x", AuthPass: "h", Obfs: "salamander", ObfsPass: "o"},
 	}
 	b, err := SingboxJSON(eps)
 	if err != nil {
@@ -121,19 +122,30 @@ func TestSingboxJSONAutoFailover(t *testing.T) {
 	groups := map[string][]any{}
 	for _, o := range doc.Outbounds {
 		if tp, _ := o["type"].(string); tp == "urltest" || tp == "selector" {
-			groups[tp], _ = o["outbounds"].([]any)
+			tag, _ := o["tag"].(string)
+			groups[tag], _ = o["outbounds"].([]any)
 		}
 	}
-	if groups["urltest"] == nil || groups["selector"] == nil {
+	if groups["auto"] == nil || groups["select"] == nil {
 		t.Fatalf("missing failover groups: %s", b)
 	}
-	for _, m := range groups["urltest"] {
+	for _, m := range groups["auto"] {
 		if m == "b-stl" {
 			t.Errorf("shadowtls detour b-stl must not be a urltest member")
 		}
 	}
-	if len(groups["urltest"]) != 2 { // a + b (the dialable tags)
-		t.Errorf("urltest should cover 2 endpoints, got %d", len(groups["urltest"]))
+	if len(groups["auto"]) != 3 { // a + b + c (the dialable tags)
+		t.Errorf("auto should cover 3 endpoints, got %d", len(groups["auto"]))
+	}
+	// a (vision) and b (shadowtls) are TCP REALITY/ShadowTLS → blackout-safe;
+	// c (hysteria2, UDP) must be excluded from the blackout group.
+	if len(groups["blackout"]) != 2 {
+		t.Errorf("blackout group should cover 2 TCP-safe endpoints, got %d", len(groups["blackout"]))
+	}
+	for _, m := range groups["blackout"] {
+		if m == "c" {
+			t.Errorf("hysteria2 (UDP) must not be in the blackout group")
+		}
 	}
 
 	// A single endpoint must not produce groups (nothing to fail over to).

@@ -26,14 +26,21 @@ func Subscription(eps []Endpoint) string {
 //   - "auto"   (urltest): continuously health-checks every endpoint and routes
 //     through the lowest-latency one that responds, so endpoints blocked on the
 //     user's operator are skipped automatically.
-//   - "select" (selector): lets the user pin a specific endpoint, defaulting to
-//     "auto".
+//   - "blackout" (urltest): the subset of "auto" that can survive a national
+//     protocol+SNI allowlist (Iran, Jan 2026) — TCP/443 REALITY and ShadowTLS
+//     shapes that send a borrowed, allowlistable SNI. Excludes every UDP core
+//     (hysteria2/tuic/amneziawg), the mieru side-port, and CF-WS (custom-domain
+//     SNI). Added only when such an endpoint exists. The client default stays
+//     "auto"; when everything else goes dark, switching "select" to "blackout"
+//     health-checks only the shapes that can still cross.
+//   - "select" (selector): lets the user pin a specific endpoint or group,
+//     defaulting to "auto".
 //
 // This is what lets a client recover when only a subset of configs survive a
 // given network: no manual trial-and-error, the working ones win on their own.
 func SingboxJSON(eps []Endpoint) ([]byte, error) {
 	var outs []map[string]any
-	var tags []string
+	var tags, blackoutTags []string
 	for _, e := range eps {
 		o := singboxOutbounds(e)
 		outs = append(outs, o...)
@@ -41,27 +48,52 @@ func SingboxJSON(eps []Endpoint) ([]byte, error) {
 		// shadowsocks; its "-stl" detour is not health-checked directly).
 		if len(o) > 0 {
 			tags = append(tags, e.Tag)
+			if blackoutSafe(e.Proto) {
+				blackoutTags = append(blackoutTags, e.Tag)
+			}
 		}
 	}
 
 	if len(tags) > 1 {
-		outs = append(outs,
-			map[string]any{
-				"type": "urltest", "tag": "auto",
-				"outbounds": tags,
+		outs = append(outs, map[string]any{
+			"type": "urltest", "tag": "auto",
+			"outbounds": tags,
+			"url":       "https://www.gstatic.com/generate_204",
+			"interval":  "3m", "tolerance": 50,
+		})
+		sel := []string{"auto"}
+		if len(blackoutTags) > 0 {
+			outs = append(outs, map[string]any{
+				"type": "urltest", "tag": "blackout",
+				"outbounds": blackoutTags,
 				"url":       "https://www.gstatic.com/generate_204",
 				"interval":  "3m", "tolerance": 50,
-			},
-			map[string]any{
-				"type": "selector", "tag": "select",
-				"outbounds": append([]string{"auto"}, tags...),
-				"default":   "auto",
-			},
-		)
+			})
+			sel = append(sel, "blackout")
+		}
+		outs = append(outs, map[string]any{
+			"type": "selector", "tag": "select",
+			"outbounds": append(sel, tags...),
+			"default":   "auto",
+		})
 	}
 
 	cfg := map[string]any{"outbounds": outs}
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// blackoutSafe reports whether an endpoint can survive a national protocol+SNI
+// allowlist (only HTTPS/443 to allowlisted domains crosses). True for the
+// TCP/443 REALITY and ShadowTLS shapes, which present a borrowed real SNI on the
+// one allowlisted port. False for UDP cores (hysteria2, tuic, amneziawg — all
+// dropped), mieru (its own non-443 port is dropped), and CF-WS/xhttp-tls (they
+// send a custom domain as SNI, which is not on the allowlist and gets RST).
+func blackoutSafe(proto string) bool {
+	switch proto {
+	case "vless-vision", "vless-xhttp", "anytls", "shadowtls":
+		return true
+	}
+	return false
 }
 
 // singboxOutbounds returns one or two outbounds for the endpoint.
@@ -96,7 +128,7 @@ func singboxOutbounds(e Endpoint) []map[string]any {
 			"type": "vless", "tag": e.Tag,
 			"server": e.Server, "server_port": e.Port,
 			"uuid": e.UUID,
-			"tls": realityTLS,
+			"tls":  realityTLS,
 			"transport": map[string]any{
 				"type": "xhttp",
 				"path": e.Path,
