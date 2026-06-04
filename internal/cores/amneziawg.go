@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
+	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 )
@@ -238,9 +239,28 @@ PersistentKeepalive = 25
 		_ = p.Sys.Restart(ctx, "awg-quick@wg0")
 	}
 
-	return Result{Notes: map[string]string{
-		"amneziawg-client-config": clientConf,
-	}}, nil
+	// sing-box wireguard outbound with AmneziaWG junk params (NekoBox/husi
+	// import it via the JSON bundle). Field names mirror the wg0.conf params.
+	ep := links.Endpoint{
+		Tag:   "amneziawg",
+		Proto: "amneziawg",
+		Raw: map[string]any{
+			"type":            "wireguard",
+			"server":          p.IP,
+			"server_port":     a.Port,
+			"local_address":   []string{"10.66.66.2/32"},
+			"private_key":     cliPriv,
+			"peer_public_key": srvPub,
+			"mtu":             1420,
+			"jc":              ob.Jc, "jmin": ob.Jmin, "jmax": ob.Jmax,
+			"s1": ob.S1, "s2": ob.S2,
+			"h1": ob.H1, "h2": ob.H2, "h3": ob.H3, "h4": ob.H4,
+		},
+	}
+	return Result{
+		Endpoints: []links.Endpoint{ep},
+		Notes:     map[string]string{"amneziawg-client-config": clientConf},
+	}, nil
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

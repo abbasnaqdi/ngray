@@ -37,10 +37,19 @@ type Endpoint struct {
 	// CertPEM is the raw PEM — embedded in sing-box JSON outbound.
 	Fingerprint string
 	CertPEM     string
+
+	// Raw is a fully pre-rendered sing-box outbound (minus "tag"), used by cores
+	// whose protocol has no compact share URI (mieru, amneziawg). When set,
+	// SingboxJSON emits it verbatim and URI() returns "" (no base64-bundle line).
+	Raw map[string]any
 }
 
-// URI renders the client share link for an endpoint.
+// URI renders the client share link for an endpoint. Raw (sing-box-only)
+// endpoints have no compact URI and are excluded from the base64 bundle.
 func (e Endpoint) URI() string {
+	if e.Raw != nil {
+		return ""
+	}
 	host := net.JoinHostPort(e.Server, strconv.Itoa(e.Port))
 	q := url.Values{}
 	switch e.Proto {

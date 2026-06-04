@@ -74,6 +74,30 @@ func TestCloudflareFrontedEndpoints(t *testing.T) {
 	}
 }
 
+// TestRawOutbounds verifies mieru/amneziawg (Raw) endpoints are emitted verbatim
+// into the sing-box bundle with their tag set, and excluded from the base64 list.
+func TestRawOutbounds(t *testing.T) {
+	mieru := Endpoint{Tag: "mieru-user", Proto: "mieru", Raw: map[string]any{
+		"type": "mieru", "server": "1.2.3.4", "server_port": 14000, "username": "user", "password": "pw",
+	}}
+	awg := Endpoint{Tag: "amneziawg", Proto: "amneziawg", Raw: map[string]any{
+		"type": "wireguard", "server": "1.2.3.4", "server_port": 51820, "jc": 5,
+	}}
+	if mieru.URI() != "" {
+		t.Errorf("Raw endpoint must have no URI, got %q", mieru.URI())
+	}
+	b, err := SingboxJSON([]Endpoint{mieru, awg})
+	if err != nil {
+		t.Fatalf("SingboxJSON: %v", err)
+	}
+	s := string(b)
+	for _, want := range []string{`"type": "mieru"`, `"tag": "mieru-user"`, `"type": "wireguard"`, `"tag": "amneziawg"`, `"username": "user"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("singbox bundle missing %q", want)
+		}
+	}
+}
+
 // TestSingboxJSONAutoFailover verifies the bundle gains urltest + selector
 // groups (so clients auto-route around endpoints blocked on a given network)
 // only when more than one endpoint is present, and that the shadowtls "-stl"

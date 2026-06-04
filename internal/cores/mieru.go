@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
+	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 )
@@ -141,7 +142,22 @@ func (Mieru) Build(p *Plan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Notes: map[string]string{
-		"mieru-client-config": string(clientJSON),
-	}}, nil
+	// sing-box outbound (NekoBox/husi import it via the JSON bundle).
+	ep := links.Endpoint{
+		Tag:   "mieru-" + m.User,
+		Proto: "mieru",
+		Raw: map[string]any{
+			"type":         "mieru",
+			"server":       p.IP,
+			"server_port":  m.Port,
+			"transport":    "TCP",
+			"username":     m.User,
+			"password":     pw,
+			"multiplexing": "MULTIPLEXING_LOW",
+		},
+	}
+	return Result{
+		Endpoints: []links.Endpoint{ep},
+		Notes:     map[string]string{"mieru-client-config": string(clientJSON)},
+	}, nil
 }

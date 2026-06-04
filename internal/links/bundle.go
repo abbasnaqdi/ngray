@@ -3,6 +3,7 @@ package links
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"strings"
 )
 
@@ -66,6 +67,14 @@ func SingboxJSON(eps []Endpoint) ([]byte, error) {
 // singboxOutbounds returns one or two outbounds for the endpoint.
 // ShadowTLS requires a shadowtls outer + shadowsocks inner; all others return one.
 func singboxOutbounds(e Endpoint) []map[string]any {
+	// Pre-rendered outbound (mieru, amneziawg): emit verbatim with the tag set.
+	if e.Raw != nil {
+		o := make(map[string]any, len(e.Raw)+1)
+		maps.Copy(o, e.Raw)
+		o["tag"] = e.Tag
+		return []map[string]any{o}
+	}
+
 	realityTLS := map[string]any{
 		"enabled":     true,
 		"server_name": e.SNI,
