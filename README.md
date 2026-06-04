@@ -11,7 +11,7 @@ No domain required. No manual SNI selection. No configuration knowledge required
 ---
 
 ```
-◆ ngray toolkit  v0.3.1
+◆ ngray toolkit  v0.4.0
   YOUR.SERVER.IP · nginx :443 · hy2 udp :443 · BBR on  ✓ up to date
 
   1  Server setup / repair

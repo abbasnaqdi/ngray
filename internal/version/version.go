@@ -4,7 +4,7 @@ package version
 import "fmt"
 
 var (
-	Version = "0.3.1"
+	Version = "0.4.0"
 	Commit  = "none"
 	Date    = "unknown"
 )
