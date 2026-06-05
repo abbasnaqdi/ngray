@@ -34,6 +34,7 @@ cloudflare.com
 workers.dev
 pages.dev
 dash.cloudflare.com
+jsdelivr.com
 
 # ── Fastly CDN (also excellent for XHTTP) ────────────────────────────────────
 fastly.com
@@ -85,10 +86,14 @@ github.com
 raw.githubusercontent.com
 objects.githubusercontent.com
 codeload.github.com
+release-assets.githubusercontent.com
 gitlab.com
 bitbucket.org
 
 # ── Google (X25519, OCSP stapling, near most EU/AS VPS IPs) ──────────────────
+google.com
+gmail.com
+translate.google.com
 dl.google.com
 storage.googleapis.com
 fonts.googleapis.com
@@ -163,6 +168,8 @@ slack.com
 salesforce.com
 oracle.com
 zoom.us
+whatsapp.com
+www.speedtest.net
 
 # ── Media / CDN-backed ───────────────────────────────────────────────────────
 wikipedia.org
@@ -178,6 +185,7 @@ reddit.com
 redd.it
 mozilla.org
 firefox.com
+medium.com
 
 # ── Hardware / gaming / electronics ─────────────────────────────────────────
 intel.com
@@ -187,6 +195,9 @@ lg.com
 sony.com
 epicgames.com
 steampowered.com
+store.steampowered.com
+playstation.com
+xbox.com
 chess.com
 
 # ── VPS / hosting (near server IPs geographically) ───────────────────────────
@@ -346,6 +357,10 @@ smetrics.samsung.com
 
 # ── CDN edge & font/asset hosts (excellent REALITY dests) ─────────────────────
 cdn.jsdelivr.net
+a.fsdn.com
+static.cloudflareinsights.com
+e7.c.lencr.org
+www.hcaptcha.com
 cdnjs.cloudflare.com
 ajax.cloudflare.com
 fontawesome.com
@@ -373,6 +388,8 @@ mathoverflow.net
 gitea.com
 codeberg.org
 sourceforge.net
+codepen.io
+phpbb.com
 sentry.io
 circleci.com
 travis-ci.com
@@ -530,6 +547,7 @@ springer.com
 ieee.org
 acm.org
 researchgate.net
+creativecommons.org
 developer.mozilla.org
 w3.org
 whatwg.org
