@@ -425,6 +425,9 @@ func cmdProxy(args []string) error {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return fmt.Errorf("invalid target %q: must be http:// or https:// URL with a host", target)
 		}
+		if u.User != nil {
+			return fmt.Errorf("target must not contain userinfo")
+		}
 		if strings.ContainsAny(target, " \t\r\n;{}\"'\\$") {
 			return fmt.Errorf("target contains invalid characters")
 		}

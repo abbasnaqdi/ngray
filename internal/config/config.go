@@ -309,7 +309,7 @@ func (c *Config) Validate() error {
 		if s == "" {
 			continue
 		}
-		if strings.ContainsAny(s, " \t\n\r;{}\"'\\") {
+		if strings.ContainsAny(s, " \t\n\r;{}\"'\\/") {
 			return fmt.Errorf("SNI %q contains characters not valid in an nginx map key", s)
 		}
 	}
@@ -337,7 +337,7 @@ func (c *Config) Validate() error {
 		if pr.Domain == "" {
 			return fmt.Errorf("proxy route missing domain")
 		}
-		if strings.ContainsAny(pr.Domain, " \t\n\r;{}\"'\\") {
+		if strings.ContainsAny(pr.Domain, " \t\n\r;{}\"'\\/") || strings.Contains(pr.Domain, "..") {
 			return fmt.Errorf("proxy domain %q contains invalid characters", pr.Domain)
 		}
 		if pr.Target == "" || !(strings.HasPrefix(pr.Target, "http://") || strings.HasPrefix(pr.Target, "https://")) {
