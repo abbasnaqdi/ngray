@@ -111,7 +111,7 @@ func cmdConfig(args []string) error {
 		return err
 	}
 	if len(args) > 0 && args[0] == "init" {
-		path := config.FileName
+		path := config.Path()
 		if err := config.Save(path, c); err != nil {
 			return err
 		}
@@ -417,7 +417,10 @@ func cmdProxy(args []string) error {
 			}
 		}
 		if target == "" {
-			target = "http://127.0.0.1:8080"
+			return fmt.Errorf("proxy add requires --target <http(s)://host:port>")
+		}
+		if (certFile == "") != (keyFile == "") {
+			return fmt.Errorf("--cert and --key must be given together")
 		}
 		// strict target validation: parse as URL, require http/https scheme with host,
 		// and reject any control/special characters that could break nginx config.

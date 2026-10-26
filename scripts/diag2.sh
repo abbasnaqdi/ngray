@@ -2,8 +2,9 @@
 # Diagnose Hysteria2 (UDP) and the Cloudflare-fronted WS/XHTTP configs.
 # Usage: bash scripts/diag2.sh [ssh-host]
 set -uo pipefail
-HOST="${1:-your-host}"
-ssh "$HOST" 'bash -s' <<'REMOTE'
+HOST="${1:?usage: $0 <ssh-host>}"
+DOMAIN="${DOMAIN:-}"
+ssh "$HOST" "DOMAIN='$DOMAIN' bash -s" <<'REMOTE'
 echo "########## HYSTERIA2 ##########"
 echo "== service: $(systemctl is-active hysteria-server)"
 echo "== config:"; find /etc/hysteria -name '*.yaml' -exec cat {} \; 2>/dev/null | sed 's/^/   /' | head -40
@@ -30,16 +31,20 @@ PY
 WSPATH=$(xpath ws)
 XHPATH=$(xpath xhttp)
 echo "== ws path: ${WSPATH:-NONE}   xhttp-tls path: ${XHPATH:-NONE}"
-echo "== WS upgrade via CF (example.com) — expect 101:"
-curl -s -o /dev/null -w "   http=%{http_code} time=%{time_total}s\n" --max-time 12 \
-  -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
-  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "https://example.com${WSPATH}"
-echo "== WS upgrade direct to origin (loopback, bypass CF) — expect 101:"
-curl -s -o /dev/null -w "   http=%{http_code}\n" --max-time 10 -k --resolve "example.com:443:127.0.0.1" \
-  -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
-  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "https://example.com${WSPATH}"
-echo "== XHTTP via CF (www.example.com):"
-curl -s -o /dev/null -w "   http=%{http_code} time=%{time_total}s\n" --max-time 12 "https://www.example.com${XHPATH}"
+if [ -n "$DOMAIN" ]; then
+  echo "== WS upgrade via CF ($DOMAIN) — expect 101:"
+  curl -s -o /dev/null -w "   http=%{http_code} time=%{time_total}s\n" --max-time 12 \
+    -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "https://${DOMAIN}${WSPATH}"
+  echo "== WS upgrade direct to origin (loopback, bypass CF) — expect 101:"
+  curl -s -o /dev/null -w "   http=%{http_code}\n" --max-time 10 -k --resolve "${DOMAIN}:443:127.0.0.1" \
+    -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "https://${DOMAIN}${WSPATH}"
+  echo "== XHTTP via CF (www.${DOMAIN}):"
+  curl -s -o /dev/null -w "   http=%{http_code} time=%{time_total}s\n" --max-time 12 "https://www.${DOMAIN}${XHPATH}"
+else
+  echo "== (set DOMAIN=… to test the CF WS/XHTTP paths)"
+fi
 echo
 echo "== firewall redirect rule count (dup check): $(iptables -t nat -S PREROUTING 2>/dev/null | grep -c REDIRECT)"
 REMOTE

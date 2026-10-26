@@ -21,7 +21,7 @@ const (
 	CertFile    = Dir + "/sub-cert.pem"
 	KeyFile     = Dir + "/sub-key.pem"
 
-	HTTPPort        = 80   // plain HTTP fallback
+	HTTPPort         = 80   // plain HTTP fallback
 	DefaultHTTPSPort = 2053 // HTTPS primary (override via config.subscription.https_port)
 )
 

@@ -2,7 +2,7 @@ package sni
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"sync"
 )
 
@@ -14,7 +14,7 @@ func Ranked(results []Result) []Result {
 			fit = append(fit, r)
 		}
 	}
-	sort.Slice(fit, func(i, j int) bool { return fit[i].Score() < fit[j].Score() })
+	slices.SortFunc(fit, func(a, b Result) int { return a.Score() - b.Score() })
 	return fit
 }
 
@@ -41,12 +41,12 @@ func (t *Tester) mapHosts(ctx context.Context, hosts []string, workers int, fn f
 	if workers <= 0 {
 		workers = 256
 	}
-	in := make(chan string)
-	results := make([]Result, len(hosts))
-	idx := make(map[string]int, len(hosts))
-	for i, h := range hosts {
-		idx[h] = i
+	type job struct {
+		host string
+		idx  int
 	}
+	in := make(chan job)
+	results := make([]Result, len(hosts))
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -54,24 +54,26 @@ func (t *Tester) mapHosts(ctx context.Context, hosts []string, workers int, fn f
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for h := range in {
-				r := fn(ctx, h)
+			for j := range in {
+				r := fn(ctx, j.host)
 				mu.Lock()
-				results[idx[h]] = r
+				results[j.idx] = r
+				mu.Unlock()
+				// Callbacks run outside the lock so a slow sink cannot
+				// serialize all workers.
 				if onResult != nil {
 					onResult(r)
 				}
-				mu.Unlock()
 			}
 		}()
 	}
-	for _, h := range hosts {
+	for i, h := range hosts {
 		select {
 		case <-ctx.Done():
 			close(in)
 			wg.Wait()
 			return results
-		case in <- h:
+		case in <- job{host: h, idx: i}:
 		}
 	}
 	close(in)

@@ -12,12 +12,14 @@ import (
 
 // protoKey maps an endpoint Proto to the emit keyword that enables it.
 var protoKey = map[string]string{
-	"vless-vision": "vless",
-	"vless-xhttp":  "vless",
-	"anytls":       "anytls",
-	"hysteria2":    "hysteria2",
-	"tuic":         "tuic",
-	"shadowtls":    "shadowtls",
+	"vless-vision":    "vless",
+	"vless-xhttp":     "vless",
+	"vless-ws-tls":    "vless",
+	"vless-xhttp-tls": "vless",
+	"anytls":          "anytls",
+	"hysteria2":       "hysteria2",
+	"tuic":            "tuic",
+	"shadowtls":       "shadowtls",
 }
 
 // noteKey maps a Note key to the emit keyword that enables it.

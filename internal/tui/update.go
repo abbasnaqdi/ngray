@@ -78,7 +78,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.vp.Width = msg.Width - 4  // 2px padding each side
+		m.vp.Width = msg.Width - 4 // 2px padding each side
 		m.vp.Height = msg.Height - 5
 		return m, nil
 
@@ -96,6 +96,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case taskLine:
 		m.lines = append(m.lines, string(msg))
+		// Cap the buffer so a long sweep cannot grow memory or make the
+		// per-line re-wrap quadratic.
+		if len(m.lines) > 500 {
+			m.lines = m.lines[len(m.lines)-500:]
+		}
 		m.vp.SetContent(m.joinWrapped())
 		m.vp.GotoBottom()
 		return m, waitFor(m.taskCh)

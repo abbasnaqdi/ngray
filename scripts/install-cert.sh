@@ -7,7 +7,7 @@
 set -euo pipefail
 CRT="${1:?usage: install-cert.sh <cert.pem> <key.pem> [host]}"
 KEY="${2:?usage: install-cert.sh <cert.pem> <key.pem> [host]}"
-HOST="${3:-your-host}"
+HOST="${3:?usage: install-cert.sh <cert.pem> <key.pem> <ssh-host>}"
 cd "$(dirname "$0")/.."
 [ -f "$CRT" ] && [ -f "$KEY" ] || { echo "cert/key file not found"; exit 1; }
 
@@ -34,7 +34,6 @@ rm -f /tmp/cf-origin.crt /tmp/cf-origin.key
 rm -f config.yml   # regenerate so the CF inbounds build with the cert present
 ./ngray server setup < /dev/null | tail -6
 echo
-echo "==> domain check"
-./ngray domain check example.com --ip YOUR.SERVER.IP
+echo "==> done"
 REMOTE
 echo "==> done"

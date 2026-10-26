@@ -3,9 +3,9 @@
 # kernel, then start awg-quick@wg0. Use this to repair a server where the awg
 # binary pre-existed (so ngray's Install — which builds the module — was skipped)
 # or after a kernel upgrade. Idempotent.
-# Usage: bash scripts/awg-build.sh [ssh-host]   (default: your-host)
+# Usage: bash scripts/awg-build.sh [ssh-host]   (pass <ssh-host> as the first argument)
 set -uo pipefail
-HOST="${1:-your-host}"
+HOST="${1:?usage: $0 <ssh-host>}"
 ssh "$HOST" 'bash -s' <<'REMOTE'
 set -e
 KVER=$(uname -r)

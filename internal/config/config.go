@@ -186,10 +186,12 @@ func Default() *Config {
 				},
 				XHTTP: []XHTTP{{SNI: "www.python.org"}},
 				CDN: &CDN{
-					// WS proxy on Domain; www.<Domain> serves the CF-fronted
+					// Disabled by default: set your own domain + install a
+					// Cloudflare Origin cert (`ngray domain cert crt key`) first.
+					// WS proxy runs on Domain; www.<Domain> serves the CF-fronted
 					// subscription (no port). XHTTP disabled — it can't traverse
 					// Cloudflare Free (response buffering breaks SplitHTTP).
-					Enabled: true, Domain: "example.com", WS: true, XHTTP: false,
+					Enabled: false, Domain: "", WS: true, XHTTP: false,
 					CertFile: "/etc/ngray/cf-origin.crt", KeyFile: "/etc/ngray/cf-origin.key",
 				},
 			},

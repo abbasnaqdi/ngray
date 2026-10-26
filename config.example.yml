@@ -127,6 +127,17 @@ subscription:
   # front_sni is optional — added as a DNS SAN to the self-signed cert.
   front_sni: www.kernel.org
 
+# Reverse proxy routes: serve an arbitrary HTTP(S) service behind a trusted
+# domain. Each route needs a certificate + key (Cloudflare Origin or Let's
+# Encrypt). `ngray proxy add <domain> --target <url>` writes this for you.
+# Requires a DNS A/AAAA record pointing at this server (or Cloudflare proxy).
+#
+# proxy_routes:
+#   - domain: app.example.com
+#     target: http://127.0.0.1:8080
+#     cert_file: /etc/ngray/cf-origin-app.example.com.crt
+#     key_file: /etc/ngray/cf-origin-app.example.com.key
+
 client:
   # Control exactly what gets printed after setup and in `ngray client links`.
   # Remove any item to suppress that output type.

@@ -2,7 +2,7 @@
 # Show the server's config.yml validation result and key sections.
 # Usage: bash scripts/cfgcheck.sh [ssh-host]
 set -uo pipefail
-HOST="${1:-your-host}"
+HOST="${1:?usage: $0 <ssh-host>}"
 ssh "$HOST" 'bash -s' <<'REMOTE'
 cd /root/ngray
 echo "== ngray config (validation) =="

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -111,12 +112,12 @@ func (e *Env) HTTPGet(url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return nil, err
 	}
 	return b, nil
 }
@@ -134,7 +135,7 @@ func (e *Env) PublicIP(ctx context.Context) string {
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
 		resp.Body.Close()
-		if ip := strings.TrimSpace(string(b)); ip != "" {
+		if ip := strings.TrimSpace(string(b)); net.ParseIP(ip) != nil {
 			return ip
 		}
 	}

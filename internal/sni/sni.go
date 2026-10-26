@@ -98,7 +98,8 @@ func (t *Tester) Test(ctx context.Context, host string) Result {
 	}
 
 	var ms []int
-	for i := 0; i < t.Samples; i++ {
+	n := max(t.Samples, 1)
+	for i := 0; i < n; i++ {
 		_, d, err := t.handshake(ctx, host, true)
 		if err != nil {
 			res.Status = t.classify(ctx, host, err)

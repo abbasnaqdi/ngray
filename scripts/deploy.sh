@@ -7,10 +7,10 @@
 # bundle. proxy-state.json is preserved, so REALITY keys / UUIDs / the
 # subscription token stay stable and existing subscription clients keep working.
 #
-# Usage: bash scripts/deploy.sh [ssh-host]      (default host: your-host)
+# Usage: bash scripts/deploy.sh [ssh-host]      (pass <ssh-host> as the first argument)
 set -euo pipefail
 
-HOST="${1:-your-host}"
+HOST="${1:?usage: $0 <ssh-host>}"
 cd "$(dirname "$0")/.."
 
 echo "==> building package"

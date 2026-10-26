@@ -46,7 +46,7 @@ const (
 	formFieldBBR     = 2
 	formCoreBase     = 3
 	formFieldProceed = formCoreBase + numWizardCores // 7
-	numFormFields    = formFieldProceed + 1           // 8
+	numFormFields    = formFieldProceed + 1          // 8
 )
 
 var wizardCoreLabels = [numWizardCores]string{"hysteria2", "mieru", "amneziawg", "fptn"}

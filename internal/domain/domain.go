@@ -26,15 +26,15 @@ const (
 
 // Report is the full result of a check.
 type Report struct {
-	Domain       string
-	ServerIP     string
-	ResolvedIPs  []string
+	Domain        string
+	ServerIP      string
+	ResolvedIPs   []string
 	ViaCloudflare bool
-	EdgeStatus   int    // HTTP status seen at the CF edge (52x = origin problem)
-	ServerHeader string // value of the HTTP Server header (e.g. "cloudflare")
-	OriginTLSOK  bool   // direct origin:443 completed a TLS handshake for this SNI
-	Verdict      Verdict
-	Advice       []string
+	EdgeStatus    int    // HTTP status seen at the CF edge (52x = origin problem)
+	ServerHeader  string // value of the HTTP Server header (e.g. "cloudflare")
+	OriginTLSOK   bool   // direct origin:443 completed a TLS handshake for this SNI
+	Verdict       Verdict
+	Advice        []string
 }
 
 // cfRanges are Cloudflare's published anycast IPv4 networks; a resolved IP in

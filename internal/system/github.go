@@ -55,6 +55,15 @@ func (e *Env) LatestVersion(ctx context.Context, repo string) (string, error) {
 	return strings.TrimPrefix(r.TagName, "v"), nil
 }
 
+// LatestTag returns the newest release's tag name (e.g. "v0.7.1-abc1234").
+func (e *Env) LatestTag(ctx context.Context, repo string) (string, error) {
+	r, err := e.latestRelease(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	return r.TagName, nil
+}
+
 // AssetURL returns the download URL of the latest-release asset matching pattern.
 func (e *Env) AssetURL(ctx context.Context, repo, pattern string) (string, error) {
 	re, err := regexp.Compile(pattern)
@@ -86,13 +95,26 @@ func (e *Env) Download(ctx context.Context, url, dest string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: %s", url, resp.Status)
 	}
-	f, err := os.Create(dest)
+	// Atomic: write to a temp file in the same dir, then rename.
+	tmp := dest + ".part"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // ParseSemver extracts the first x.y.z version from arbitrary tool output.

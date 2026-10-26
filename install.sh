@@ -45,14 +45,20 @@ ok "downloaded"
 # ── verify ───────────────────────────────────────────────────────────────────
 EXPECTED=$(grep " ${ASSET}$" "$TMP/SHA256SUMS" | awk '{print $1}' | head -1)
 [ -n "$EXPECTED" ] || die "no checksum for ${ASSET}"
-ACTUAL=$(sha256sum "$TMP/ngray" | awk '{print $1}')
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL=$(sha256sum "$TMP/ngray" | awk '{print $1}')
+else
+    ACTUAL=$(shasum -a 256 "$TMP/ngray" | awk '{print $1}')
+fi
 [ "$EXPECTED" = "$ACTUAL" ] || die "checksum mismatch"
 ok "checksum verified"
 
 # ── install ──────────────────────────────────────────────────────────────────
 install -d -m 0750 "$DIR" "$DIR/snis"
 install -m 0755 "$TMP/ngray" "$BIN"
-[ -s "$TMP/candidates.sni" ] && install -m 0640 "$TMP/candidates.sni" "$DIR/snis/candidates.sni"
+if [ -s "$TMP/candidates.sni" ]; then
+    install -m 0640 "$TMP/candidates.sni" "$DIR/snis/candidates.sni"
+fi
 ok "installed $BIN"
 
 # ── config ───────────────────────────────────────────────────────────────────

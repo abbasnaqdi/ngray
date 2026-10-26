@@ -27,3 +27,26 @@ func TestRender(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderProxyRoute(t *testing.T) {
+	c := Config{
+		Port: 443,
+		Sink: 8080,
+		ProxyRoutes: []ProxyRoute{{
+			Domain: "app.example.com", Target: "http://127.0.0.1:9000",
+			CertFile: "/etc/ngray/app.crt", KeyFile: "/etc/ngray/app.key", Backend: 8445,
+		}},
+	}
+	out := c.Render()
+	for _, want := range []string{
+		"app.example.com",
+		"127.0.0.1:8445;",
+		"listen 127.0.0.1:8445 ssl;",
+		`proxy_pass "http://127.0.0.1:9000";`,
+		"proxy_ssl_server_name on;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("proxy render missing %q\n---\n%s", want, out)
+		}
+	}
+}

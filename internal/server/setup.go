@@ -209,7 +209,11 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	// Reverse proxy routes: serve arbitrary services behind trusted domains.
 	for _, pr := range cfg.ProxyRoutes {
-		if pr.Domain == "" || pr.CertFile == "" || pr.KeyFile == "" {
+		if pr.Domain == "" {
+			continue
+		}
+		if pr.CertFile == "" || pr.KeyFile == "" {
+			o.log("warning: proxy route %s skipped — no cert/key configured", pr.Domain)
 			continue
 		}
 		if !fileExists(pr.CertFile) || !fileExists(pr.KeyFile) {

@@ -102,7 +102,12 @@ func (s *State) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, b, 0o600)
+	// Atomic write: temp file + rename so a crash never leaves truncated JSON.
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.path)
 }
 
 // Secret returns the secret for id, generating and persisting it on first use.
@@ -138,12 +143,15 @@ func NewShortID() string { return RandHex(8) }
 
 func NewPassword(n int) string {
 	const ab = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	limit := 256 - (256 % len(ab)) // reject values that would bias the modulo
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	for i := range b {
-		b[i] = ab[int(b[i])%len(ab)]
+	buf := make([]byte, 1)
+	for i := 0; i < n; {
+		_, _ = rand.Read(buf)
+		if int(buf[0]) < limit {
+			b[i] = ab[int(buf[0])%len(ab)]
+			i++
+		}
 	}
 	return string(b)
 }

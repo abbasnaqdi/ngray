@@ -90,7 +90,7 @@ deploys. No editing needed for the first run.
 One-command deploy (build → ship → provision, preserving `proxy-state.json`):
 
 ```bash
-bash scripts/deploy.sh [ssh-host]     # default host: your-host
+bash scripts/deploy.sh [ssh-host]     # pass the ssh host as the first argument
 ```
 
 ### Or install locally
@@ -124,6 +124,9 @@ ngray sni test rust-lang.org          # check if an SNI is REALITY-fit
 | `sni discover` | scan /24 near your server to find nearby REALITY-fit IPs |
 | `domain check <d>` | is a domain a working Cloudflare-fronted path to this server? (DNS via 1.1.1.1/9.9.9.9/AdGuard, CF edge status, origin TLS) with scenario advice |
 | `domain cert <crt> <key>` | install a Cloudflare Origin Certificate so the WS/subscription domain serves valid TLS (fixes CF error 525) |
+| `proxy add <d> --target <url>` | serve an arbitrary HTTP(S) service behind a trusted domain (nginx reverse proxy) |
+| `proxy list` / `proxy remove <d>` | list / remove configured proxy routes |
+| `config init` | write a default config.yml (auto-detects location) |
 | `scan` | CDN edge-IP scanner — find IPs that survive MCI (Akamai/Cloudflare/Fastly) |
 | `dns validate` | find working DNS resolvers from this network |
 | `dns doh [n]` | benchmark DoH providers by latency |

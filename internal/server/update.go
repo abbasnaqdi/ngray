@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
@@ -18,7 +19,7 @@ const SelfRepo = "abbasnaqdi/ngray"
 // and upgrades those that are behind with confirmation.
 func UpdateCores(ctx context.Context, confirm func(string) bool, log func(string, ...any)) error {
 	sys := system.New()
-	any := false
+	updated := false
 	for _, core := range cores.Registry() {
 		ver, ok := core.Installed(ctx, sys)
 		if !ok {
@@ -55,9 +56,9 @@ func UpdateCores(ctx context.Context, confirm func(string) bool, log func(string
 		}
 		_ = sys.Restart(ctx, core.Service())
 		log("%-14s updated to %s", core.Name(), latest)
-		any = true
+		updated = true
 	}
-	if !any {
+	if !updated {
 		log("all cores checked")
 	}
 	return nil
@@ -70,12 +71,18 @@ func SelfUpdate(ctx context.Context, log func(string, ...any)) error {
 	if err != nil {
 		return fmt.Errorf("no ng-ray release found: %w", err)
 	}
+	tag, _ := sys.LatestTag(ctx, SelfRepo)
+	expected := "v" + version.Version
+	if version.Commit != "" && version.Commit != "none" {
+		expected += "-" + version.Commit
+	}
 	log("current: %s  latest: %s", version.Version, latest)
-	if latest == version.Version {
+	if latest == version.Version && (tag == "" || tag == expected) {
 		log("ng-ray %s is up to date", version.Version)
 		return nil
 	}
-	url, err := sys.AssetURL(ctx, SelfRepo, `ngray.*linux.*amd64`)
+	pattern := fmt.Sprintf(`ngray-%s-%s`, runtime.GOOS, runtime.GOARCH)
+	url, err := sys.AssetURL(ctx, SelfRepo, pattern)
 	if err != nil {
 		return err
 	}

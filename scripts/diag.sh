@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Remote diagnostics for the ng-ray server: service states, journals for any
 # inactive core, and a domain health check from the server's own vantage.
-# Usage: bash scripts/diag.sh [ssh-host]   (default: your-host)
+# Usage: bash scripts/diag.sh [ssh-host]   (pass <ssh-host> as the first argument)
 set -uo pipefail
-HOST="${1:-your-host}"
+HOST="${1:?usage: $0 <ssh-host>}"
 ssh "$HOST" 'bash -s' <<'REMOTE'
 echo "===== service states ====="
 for s in xray shoes sing-box hysteria-server fptn-server mieru-server awg-quick@wg0; do
@@ -27,6 +27,5 @@ echo
 echo "===== cloudflare cdn note (cert installed?) ====="
 ls -l /etc/ngray/cf-origin.crt /etc/ngray/cf-origin.key 2>&1 | sed 's/^/  /'
 echo
-echo "===== ngray domain check (server vantage) ====="
-cd /root/ngray && ./ngray domain check example.com --ip YOUR.SERVER.IP
+echo "===== domain check (run: ngray domain check <your-domain>) ====="
 REMOTE
