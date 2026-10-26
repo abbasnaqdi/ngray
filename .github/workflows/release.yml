@@ -13,12 +13,14 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version: "1.26"
+          cache: true
       - name: gofmt
         run: |
           fmt=$(gofmt -l cmd internal)
@@ -30,7 +32,8 @@ jobs:
 
   build:
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -45,7 +48,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version: "1.26"
+          cache: true
 
       - name: Build
         shell: bash
@@ -72,7 +76,8 @@ jobs:
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     concurrency:
@@ -100,9 +105,13 @@ jobs:
           SHORT=${{ github.sha }}
           SHORT=${SHORT:0:7}
           TAG="v${VERSION}-${SHORT}"
-          gh release create "$TAG" dist/* \
-            --title "ngray ${TAG}" \
-            --notes "Automated build from ${{ github.sha }}" \
-            --latest
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "ngray ${TAG}" \
+              --notes "Automated build from ${{ github.sha }}" \
+              --latest
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
