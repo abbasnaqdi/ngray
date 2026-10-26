@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -414,7 +415,7 @@ func cmdDomainIssue(args []string) error {
 	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
 		return fmt.Errorf("usage: ngray domain issue <domain>")
 	}
-	dom := args[0]
+	dom := strings.TrimSuffix(strings.ToLower(args[0]), ".")
 	c, err := cfClient()
 	if err != nil {
 		return err
@@ -428,6 +429,10 @@ func cmdDomainIssue(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Validate the pair before touching the live files.
+	if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
+		return fmt.Errorf("cloudflare returned a mismatched cert/key: %w", err)
+	}
 	cdn := config.Default().Cores.Xray.CDN
 	if cfg, err := config.LoadOrDefault(config.Path()); err == nil && cfg.Cores.Xray.CDN != nil {
 		cdn = cfg.Cores.Xray.CDN
@@ -435,13 +440,10 @@ func cmdDomainIssue(args []string) error {
 	if cdn == nil || cdn.CertFile == "" || cdn.KeyFile == "" {
 		return fmt.Errorf("no cdn cert paths configured")
 	}
-	if err := os.MkdirAll(filepath.Dir(cdn.CertFile), 0o750); err != nil {
+	if err := writeFileAtomic(cdn.KeyFile, keyPEM, 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(cdn.CertFile, certPEM, 0o644); err != nil {
-		return err
-	}
-	if err := os.WriteFile(cdn.KeyFile, keyPEM, 0o600); err != nil {
+	if err := writeFileAtomic(cdn.CertFile, certPEM, 0o644); err != nil {
 		return err
 	}
 	fmt.Printf("issued → %s\n        → %s\n", cdn.CertFile, cdn.KeyFile)
@@ -449,19 +451,51 @@ func cmdDomainIssue(args []string) error {
 	return nil
 }
 
+// writeFileAtomic writes data via a temp file + rename so a crash never leaves a
+// truncated cert/key, and tightens the mode even for a pre-existing file.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".ngray-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
+}
+
 // cmdDomainDNS creates or updates the Cloudflare A record for a domain.
 func cmdDomainDNS(args []string) error {
+	ip := flagValue(args, "--ip")
+	// The domain is the first positional left after removing flag pairs.
 	var dom string
-	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			dom = a
-			break
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "-") {
+			if a == "--ip" || a == "--proxied" {
+				i++ // skip the value
+			}
+			continue
 		}
+		dom = strings.TrimSuffix(strings.ToLower(a), ".")
+		break
 	}
 	if dom == "" {
 		return fmt.Errorf("usage: ngray domain dns <domain> [--ip IP] [--proxied=false]")
 	}
-	ip := flagValue(args, "--ip")
 	if ip == "" {
 		if st, err := state.Load(state.Path()); err == nil {
 			ip = st.IP
@@ -472,6 +506,9 @@ func cmdDomainDNS(args []string) error {
 	}
 	if ip == "" {
 		return fmt.Errorf("could not determine server IP; pass --ip")
+	}
+	if net.ParseIP(ip) == nil || strings.Contains(ip, ":") {
+		return fmt.Errorf("invalid IPv4 address %q", ip)
 	}
 	proxied := flagValue(args, "--proxied") != "false"
 	c, err := cfClient()

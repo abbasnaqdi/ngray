@@ -18,12 +18,20 @@ func TestTokenFromEnvOrFile(t *testing.T) {
 	}
 	t.Setenv("NGRAY_CF_TOKEN", "")
 	t.Setenv("CF_API_TOKEN", "")
-	// no file at /etc/ngray/cf_token in the test env
+	// point the file lookup at a guaranteed-missing path
+	t.Setenv("NGRAY_CF_TOKEN_FILE", filepath.Join(t.TempDir(), "missing"))
 	if got := TokenFromEnvOrFile(); got != "" {
 		t.Fatalf("expected empty token, got %q", got)
 	}
-	_ = os.Getenv("HOME")
-	_ = filepath.Separator
+	// and at a real file
+	p := filepath.Join(t.TempDir(), "cf_token")
+	if err := os.WriteFile(p, []byte("file-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NGRAY_CF_TOKEN_FILE", p)
+	if got := TokenFromEnvOrFile(); got != "file-token" {
+		t.Fatalf("file token = %q", got)
+	}
 }
 
 func newMock(t *testing.T, handler http.HandlerFunc) *Client {
@@ -73,8 +81,8 @@ func TestIssueOriginCert(t *testing.T) {
 			Hostnames []string `json:"hostnames"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body.CSR == "" {
-			t.Error("missing csr")
+		if !strings.HasPrefix(body.CSR, "-----BEGIN CERTIFICATE REQUEST-----") {
+			t.Errorf("csr must be PEM, got %q", body.CSR)
 		}
 		if len(body.Hostnames) != 2 {
 			t.Errorf("expected domain + www, got %v", body.Hostnames)

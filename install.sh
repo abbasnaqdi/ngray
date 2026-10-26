@@ -43,7 +43,7 @@ curl -fsSL "${BASE}/candidates.sni" -o "$TMP/candidates.sni" 2>/dev/null || true
 ok "downloaded"
 
 # ── verify ───────────────────────────────────────────────────────────────────
-EXPECTED=$(grep " ${ASSET}$" "$TMP/SHA256SUMS" | awk '{print $1}' | head -1)
+EXPECTED=$(grep " ${ASSET}$" "$TMP/SHA256SUMS" | awk '{print $1}' | head -1 || true)
 [ -n "$EXPECTED" ] || die "no checksum for ${ASSET}"
 if command -v sha256sum >/dev/null 2>&1; then
     ACTUAL=$(sha256sum "$TMP/ngray" | awk '{print $1}')

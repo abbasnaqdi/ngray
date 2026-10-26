@@ -11,9 +11,11 @@ test -f /tmp/sbx/etc/nginx/nginx.conf || { echo "FAIL: sandbox nginx.conf missin
 test ! -e /etc/shoes || { echo "FAIL: sandbox leaked to /etc"; exit 1; }
 echo "PASS: sandbox isolated"
 
-# 2) real provisioning
-yes | ngray server setup
+# 2) real provisioning — yes(1) exits on SIGPIPE once setup stops reading, so
+# disable pipefail for this one pipeline instead of treating 141 as failure.
+( set +o pipefail; yes | ngray server setup )
 nginx -t
 grep -q "managed by ng-ray" /etc/nginx/nginx.conf || { echo "FAIL: marker missing"; exit 1; }
-ngray client links | grep -q "vless://" || { echo "FAIL: no links"; exit 1; }
+links=$(ngray client links)
+grep -q "vless://" <<<"$links" || { echo "FAIL: no links"; exit 1; }
 echo "PASS: real provisioning produced valid nginx + links"

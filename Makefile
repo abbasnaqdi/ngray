@@ -35,25 +35,28 @@ e2e:
 	bash scripts/e2e.sh
 
 # Cross-compile release binaries (used for GitHub releases).
-PLATFORMS := linux/amd64 linux/arm64
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 dist: check
 	@rm -rf dist && mkdir -p dist
 	@for p in $(PLATFORMS); do \
-		os=$${p%/*}; arch=$${p#*/}; out=dist/ngray-$$os-$$arch; \
+		os=$${p%/*}; arch=$${p#*/}; ext=""; \
+		[ "$$os" = "windows" ] && ext=".exe"; \
+		out=dist/ngray-$$os-$$arch$$ext; \
 		echo "building $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
 			go build -trimpath -ldflags "$(LDFLAGS)" -o $$out ./cmd/ngray; \
 	done
-	@cd dist && sha256sum ngray-* > SHA256SUMS
+	@cp snis/candidates.sni dist/
+	@cd dist && sha256sum ngray-* candidates.sni > SHA256SUMS
 	@echo "dist ready:" && ls -1 dist
 
 release: dist
 	@test -z "$$(git status --porcelain)" || { echo "tree dirty; commit first"; exit 1; }
 	@command -v gh >/dev/null 2>&1 || { echo "install gh: https://cli.github.com"; exit 1; }
-	git tag -a v$(VERSION) -m "ng-ray v$(VERSION)"
-	git push origin v$(VERSION)
-	gh release create v$(VERSION) dist/* --title "ng-ray v$(VERSION)" --generate-notes
+	git tag -a v$(VERSION)-$(COMMIT) -m "ng-ray v$(VERSION)-$(COMMIT)"
+	git push origin v$(VERSION)-$(COMMIT)
+	gh release create v$(VERSION)-$(COMMIT) dist/* --title "ngray v$(VERSION)-$(COMMIT)" --generate-notes --latest
 
 # Build a ready-to-run local package in pkg/release/.
 # config.example.yml ships as a reference (NOT as config.yml): with no config.yml

@@ -32,10 +32,9 @@ var (
 	textStyle   = lipgloss.NewStyle().Foreground(colorText)
 	keyStyle    = lipgloss.NewStyle().Foreground(colorMuted)
 	selStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorText).Background(colorSelBg)
-	disStyle    = lipgloss.NewStyle().Foreground(colorDim)
+	disStyle    = lipgloss.NewStyle().Foreground(colorMuted)
 	okStyle     = lipgloss.NewStyle().Foreground(colorOK)
 	errStyle    = lipgloss.NewStyle().Foreground(colorErr)
-	warnStyle   = lipgloss.NewStyle().Foreground(colorWarn)
 	spinStyle   = lipgloss.NewStyle().Foreground(colorAccent)
 	badge       = lipgloss.NewStyle().Foreground(colorWarn)
 
@@ -85,13 +84,14 @@ func (m Model) menuRow(i int, it item) string {
 	dis, reason := m.disabled(it)
 	selected := i == m.cursor
 
+	const nameW = 26
 	switch {
 	case dis:
-		return disStyle.Render(fmt.Sprintf("    %s  %-26s %s\n", it.key, it.name, reason))
+		return disStyle.Render(fmt.Sprintf("    %s  %-*s %s\n", it.key, nameW, it.name, reason))
 	case selected:
-		return selStyle.Render(fmt.Sprintf("  ❯ %s  %-25s", it.key, it.name)) + "\n"
+		return selStyle.Render(fmt.Sprintf("  ❯ %s  %-*s", it.key, nameW, it.name)) + "\n"
 	default:
-		return "    " + keyStyle.Render(it.key) + "  " + textStyle.Render(it.name) + "\n"
+		return "    " + keyStyle.Render(it.key) + "  " + textStyle.Render(fmt.Sprintf("%-*s", nameW, it.name)) + "\n"
 	}
 }
 
