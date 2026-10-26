@@ -14,11 +14,12 @@ import (
 const FileName = "config.yml"
 
 type Config struct {
-	Server       Server       `yaml:"server"`
-	Nginx        Nginx        `yaml:"nginx"`
-	Cores        Cores        `yaml:"cores"`
-	Subscription Subscription `yaml:"subscription"`
-	Client       Client       `yaml:"client"`
+	Server       Server        `yaml:"server"`
+	Nginx        Nginx         `yaml:"nginx"`
+	Cores        Cores         `yaml:"cores"`
+	Subscription Subscription  `yaml:"subscription"`
+	ProxyRoutes  []ProxyRoute  `yaml:"proxy_routes,omitempty"`
+	Client       Client        `yaml:"client"`
 }
 
 type Server struct {
@@ -161,6 +162,13 @@ type Subscription struct {
 	Enabled   bool   `yaml:"enabled"`
 	FrontSNI  string `yaml:"front_sni,omitempty"`
 	HTTPSPort int    `yaml:"https_port,omitempty"` // HTTPS sub port (default 2053)
+}
+
+type ProxyRoute struct {
+	Domain   string `yaml:"domain"`
+	Target   string `yaml:"target"`
+	CertFile string `yaml:"cert_file,omitempty"`
+	KeyFile  string `yaml:"key_file,omitempty"`
 }
 
 type Client struct {

@@ -33,11 +33,12 @@ type Subscription struct {
 }
 
 type Config struct {
-	Port   int
-	Sink   int // loopback default backend (returns 444)
-	Routes []Route
-	Sub    *Subscription
-	CDNSub *CDNSub
+	Port        int
+	Sink        int // loopback default backend (returns 444)
+	Routes      []Route
+	Sub         *Subscription
+	CDNSub      *CDNSub
+	ProxyRoutes []ProxyRoute
 }
 
 // CDNSub serves the subscription on a Cloudflare-proxied domain SNI over the
@@ -55,9 +56,26 @@ type CDNSub struct {
 	SingboxFile string
 }
 
+// ProxyRoute serves an arbitrary service behind a trusted domain via nginx
+// reverse proxy. Each route gets its own SNI in the 443 mux, routed to a
+// loopback TLS server that presents the origin cert and proxies to Target.
+type ProxyRoute struct {
+	Domain   string
+	Target   string
+	CertFile string
+	KeyFile  string
+	Backend  int
+}
+
 // Render produces the full nginx.conf.
 func (c Config) Render() string {
 	routes := append([]Route(nil), c.Routes...)
+	// Proxy routes also need SNI routing in the 443 mux.
+	for _, pr := range c.ProxyRoutes {
+		if pr.Domain != "" && pr.Backend > 0 {
+			routes = append(routes, Route{SNI: pr.Domain, Backend: pr.Backend})
+		}
+	}
 	sort.Slice(routes, func(i, j int) bool { return routes[i].SNI < routes[j].SNI })
 
 	var mapEntries strings.Builder
@@ -176,6 +194,34 @@ events {
     }
 `, c.CDNSub.Backend, c.CDNSub.CertFile, c.CDNSub.KeyFile, c.CDNSub.Domain,
 			c.CDNSub.Dir, c.CDNSub.BundleFile, c.CDNSub.SingboxFile)
+	}
+
+	// Reverse proxy routes: each domain gets a loopback TLS server that
+	// presents the origin cert and proxies to the configured target.
+	for _, pr := range c.ProxyRoutes {
+		if pr.Domain == "" || pr.CertFile == "" || pr.KeyFile == "" {
+			continue
+		}
+		backend := pr.Backend
+		if backend <= 0 {
+			backend = 8444
+		}
+		fmt.Fprintf(&b, `
+    server {
+        listen 127.0.0.1:%d ssl;
+        ssl_certificate     %s;
+        ssl_certificate_key %s;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        server_name %s;
+        location / {
+            proxy_pass %s;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+`, backend, pr.CertFile, pr.KeyFile, pr.Domain, pr.Target)
 	}
 
 	b.WriteString("}\n")

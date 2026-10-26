@@ -207,6 +207,23 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		}
 	}
 
+	// Reverse proxy routes: serve arbitrary services behind trusted domains.
+	for _, pr := range cfg.ProxyRoutes {
+		if pr.Domain == "" || pr.CertFile == "" || pr.KeyFile == "" {
+			continue
+		}
+		const proxyBackend = 8445
+		ngCfg.Routes = append(ngCfg.Routes, nginx.Route{SNI: pr.Domain, Backend: proxyBackend})
+		ngCfg.ProxyRoutes = append(ngCfg.ProxyRoutes, nginx.ProxyRoute{
+			Domain:   pr.Domain,
+			Target:   pr.Target,
+			CertFile: pr.CertFile,
+			KeyFile:  pr.KeyFile,
+			Backend:  proxyBackend,
+		})
+		o.log("proxy route: %s -> %s", pr.Domain, pr.Target)
+	}
+
 	if err := writeNginx(ctx, sys, ngCfg, o); err != nil {
 		return nil, err
 	}

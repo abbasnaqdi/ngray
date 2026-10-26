@@ -35,6 +35,9 @@ Usage:
   ngray sni discover     find REALITY SNIs hosted near your server
   ngray domain check [d] check if a domain is a working CF-fronted path here
   ngray domain cert c k  install a Cloudflare Origin cert+key for CF fronting
+  ngray proxy add d      register a domain as a reverse proxy (-> target)
+  ngray proxy list       list configured proxy routes
+  ngray proxy remove d   remove a proxy route
   ngray scan             scan CDN edges for reachable IPs
   ngray dns validate     find DNS resolvers usable for DNS tunneling
   ngray dns doh [n]      benchmark public DoH resolvers
@@ -84,6 +87,8 @@ func run(args []string) error {
 		return cmdDNS(args[1:])
 	case "domain":
 		return cmdDomain(args[1:])
+	case "proxy":
+		return cmdProxy(args[1:])
 	case "regen":
 		return cmdRegen()
 	case "doctor":
@@ -340,6 +345,107 @@ func cmdDomainCert(args []string) error {
 	fmt.Printf("installed origin cert → %s\ninstalled origin key  → %s\n", cdn.CertFile, cdn.KeyFile)
 	fmt.Println("next: set Cloudflare SSL/TLS mode to Full (strict), then run: ngray server setup")
 	return nil
+}
+
+// cmdProxy registers a domain as a reverse proxy in front of an arbitrary service.
+func cmdProxy(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: ngray proxy add <domain> --target <url> | list | remove <domain>")
+	}
+	cfg, err := config.LoadOrDefault(config.Path())
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "list":
+		if len(cfg.ProxyRoutes) == 0 {
+			fmt.Println("no proxy routes configured")
+			return nil
+		}
+		for _, r := range cfg.ProxyRoutes {
+			fmt.Printf("%s  ->  %s  (%s)\n", r.Domain, r.Target, r.CertFile)
+		}
+		return nil
+	case "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ngray proxy remove <domain>")
+		}
+		dom := args[1]
+		var kept []config.ProxyRoute
+		for _, r := range cfg.ProxyRoutes {
+			if r.Domain != dom {
+				kept = append(kept, r)
+			}
+		}
+		cfg.ProxyRoutes = kept
+		if err := config.Save(config.Path(), cfg); err != nil {
+			return err
+		}
+		fmt.Printf("removed %s; run `ngray server setup` to apply\n", dom)
+		return nil
+	case "add":
+		// parse domain + --target
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ngray proxy add <domain> --target <url> [--cert FILE --key FILE]")
+		}
+		dom := args[1]
+		target := ""
+		certFile, keyFile := "", ""
+		for i := 2; i < len(args); i++ {
+			switch args[i] {
+			case "--target":
+				if i+1 < len(args) {
+					target = args[i+1]
+					i++
+				}
+			case "--cert":
+				if i+1 < len(args) {
+					certFile = args[i+1]
+					i++
+				}
+			case "--key":
+				if i+1 < len(args) {
+					keyFile = args[i+1]
+					i++
+				}
+			}
+		}
+		if target == "" {
+			target = "http://127.0.0.1:8080"
+		}
+		// validate target
+		if !(strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://")) {
+			return fmt.Errorf("target must start with http:// or https://")
+		}
+		// cert resolution: if not provided, try CF origin cert paths
+		if certFile == "" {
+			certFile = "/etc/ngray/cf-origin-" + dom + ".crt"
+			keyFile = "/etc/ngray/cf-origin-" + dom + ".key"
+		}
+		// remove existing route for this domain
+		var kept []config.ProxyRoute
+		for _, r := range cfg.ProxyRoutes {
+			if r.Domain != dom {
+				kept = append(kept, r)
+			}
+		}
+		cfg.ProxyRoutes = append(kept, config.ProxyRoute{
+			Domain:   dom,
+			Target:   target,
+			CertFile: certFile,
+			KeyFile:  keyFile,
+		})
+		// also set subscription domain
+		cfg.Subscription.FrontSNI = dom
+		if err := config.Save(config.Path(), cfg); err != nil {
+			return err
+		}
+		fmt.Printf("registered proxy: %s -> %s\n", dom, target)
+		fmt.Println("run `ngray server setup` to apply")
+		return nil
+	default:
+		return fmt.Errorf("usage: ngray proxy add <domain> --target <url> | list | remove <domain>")
+	}
 }
 
 // cmdDoctor diagnoses cores, nginx, BBR and foreign panels.
