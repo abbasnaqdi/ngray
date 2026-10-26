@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/cdnscan"
+	"github.com/abbasnaqdi/ng-ray/internal/cf"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/dnsval"
@@ -35,6 +36,9 @@ Usage:
   ngray sni test [host…] test SNIs for REALITY fitness and latency
   ngray sni discover     find REALITY SNIs hosted near your server
   ngray domain check [d] check if a domain is a working CF-fronted path here
+  ngray domain set d     enable Cloudflare fronting for a domain in config.yml
+  ngray domain issue d   issue+install a Cloudflare Origin certificate
+  ngray domain dns d     create/update the Cloudflare A record for a domain
   ngray domain cert c k  install a Cloudflare Origin cert+key for CF fronting
   ngray proxy add d      register a domain as a reverse proxy (-> target)
   ngray proxy list       list configured proxy routes
@@ -259,11 +263,24 @@ func cmdDNS(args []string) error {
 // cmdDomain checks whether a domain is a working Cloudflare-fronted path to this
 // server and prints scenario-aware advice ("be smart") before configs are made.
 func cmdDomain(args []string) error {
-	if len(args) > 0 && args[0] == "cert" {
-		return cmdDomainCert(args[1:])
+	if len(args) > 0 {
+		switch args[0] {
+		case "cert":
+			return cmdDomainCert(args[1:])
+		case "issue":
+			return cmdDomainIssue(args[1:])
+		case "dns":
+			return cmdDomainDNS(args[1:])
+		case "set":
+			return cmdDomainSet(args[1:])
+		}
 	}
 	if len(args) == 0 || args[0] != "check" {
-		return fmt.Errorf("usage: ngray domain check <domain> [--ip IP] | ngray domain cert <cert.pem> <key.pem>")
+		return fmt.Errorf("usage: ngray domain check <domain> [--ip IP]\n" +
+			"       ngray domain set <domain>          enable CDN fronting for a domain\n" +
+			"       ngray domain issue <domain>        issue a Cloudflare Origin cert\n" +
+			"       ngray domain dns <domain> [--ip IP] [--proxied=false]  upsert the A record\n" +
+			"       ngray domain cert <cert.pem> <key.pem>")
 	}
 	rest := args[1:]
 	var dom string
@@ -299,6 +316,15 @@ func cmdDomain(args []string) error {
 		fmt.Printf("  edge status   HTTP %d (server: %s)\n", rep.EdgeStatus, dash(rep.ServerHeader))
 	}
 	fmt.Printf("  origin TLS    %v\n", rep.OriginTLSOK)
+	if tok := cf.TokenFromEnvOrFile(); tok != "" {
+		if err := cf.New(tok).VerifyToken(context.Background()); err == nil {
+			fmt.Printf("  cf token      valid\n")
+		} else {
+			fmt.Printf("  cf token      invalid (%v)\n", err)
+		}
+	} else {
+		fmt.Printf("  cf token      not configured (set NGRAY_CF_TOKEN or /etc/ngray/cf_token)\n")
+	}
 	fmt.Printf("\n  verdict: %s\n", rep.Verdict)
 	for _, a := range rep.Advice {
 		fmt.Printf("    • %s\n", a)
@@ -345,6 +371,117 @@ func cmdDomainCert(args []string) error {
 	}
 	fmt.Printf("installed origin cert → %s\ninstalled origin key  → %s\n", cdn.CertFile, cdn.KeyFile)
 	fmt.Println("next: set Cloudflare SSL/TLS mode to Full (strict), then run: ngray server setup")
+	return nil
+}
+
+// cfClient builds a Cloudflare client from env/0600 file, or errors clearly.
+func cfClient() (*cf.Client, error) {
+	tok := cf.TokenFromEnvOrFile()
+	if tok == "" {
+		return nil, fmt.Errorf("no Cloudflare token: set NGRAY_CF_TOKEN or write /etc/ngray/cf_token (0600)")
+	}
+	return cf.New(tok), nil
+}
+
+// cmdDomainSet enables CDN fronting for a domain in config.yml.
+func cmdDomainSet(args []string) error {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("usage: ngray domain set <domain>")
+	}
+	dom := args[0]
+	cfg, err := config.LoadOrDefault(config.Path())
+	if err != nil {
+		return err
+	}
+	if cfg.Cores.Xray.CDN == nil {
+		cfg.Cores.Xray.CDN = &config.CDN{CertFile: "/etc/ngray/cf-origin.crt", KeyFile: "/etc/ngray/cf-origin.key", WS: true}
+	}
+	cfg.Cores.Xray.CDN.Enabled = true
+	cfg.Cores.Xray.CDN.Domain = dom
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		return err
+	}
+	fmt.Printf("CDN fronting enabled for %s\n", dom)
+	fmt.Println("next: ngray domain issue <domain>, ngray domain dns <domain>, then ngray server setup")
+	return nil
+}
+
+// cmdDomainIssue issues and installs a Cloudflare Origin certificate.
+func cmdDomainIssue(args []string) error {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("usage: ngray domain issue <domain>")
+	}
+	dom := args[0]
+	c, err := cfClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if err := c.VerifyToken(ctx); err != nil {
+		return fmt.Errorf("cloudflare token rejected: %w", err)
+	}
+	fmt.Printf("requesting Cloudflare Origin certificate for %s …\n", dom)
+	certPEM, keyPEM, err := c.IssueOriginCert(ctx, dom)
+	if err != nil {
+		return err
+	}
+	cdn := config.Default().Cores.Xray.CDN
+	if cfg, err := config.LoadOrDefault(config.Path()); err == nil && cfg.Cores.Xray.CDN != nil {
+		cdn = cfg.Cores.Xray.CDN
+	}
+	if cdn == nil || cdn.CertFile == "" || cdn.KeyFile == "" {
+		return fmt.Errorf("no cdn cert paths configured")
+	}
+	if err := os.MkdirAll(filepath.Dir(cdn.CertFile), 0o750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(cdn.CertFile, certPEM, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(cdn.KeyFile, keyPEM, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("issued → %s\n        → %s\n", cdn.CertFile, cdn.KeyFile)
+	fmt.Println("set Cloudflare SSL/TLS mode to Full (strict), then run: ngray server setup")
+	return nil
+}
+
+// cmdDomainDNS creates or updates the Cloudflare A record for a domain.
+func cmdDomainDNS(args []string) error {
+	var dom string
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			dom = a
+			break
+		}
+	}
+	if dom == "" {
+		return fmt.Errorf("usage: ngray domain dns <domain> [--ip IP] [--proxied=false]")
+	}
+	ip := flagValue(args, "--ip")
+	if ip == "" {
+		if st, err := state.Load(state.Path()); err == nil {
+			ip = st.IP
+		}
+	}
+	if ip == "" {
+		ip = system.New().PublicIP(context.Background())
+	}
+	if ip == "" {
+		return fmt.Errorf("could not determine server IP; pass --ip")
+	}
+	proxied := flagValue(args, "--proxied") != "false"
+	c, err := cfClient()
+	if err != nil {
+		return err
+	}
+	if err := c.EnsureARecord(context.Background(), dom, ip, proxied); err != nil {
+		return err
+	}
+	fmt.Printf("A %s → %s (proxied=%v)\n", dom, ip, proxied)
 	return nil
 }
 

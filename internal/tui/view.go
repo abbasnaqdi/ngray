@@ -12,32 +12,36 @@ import (
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 
+// Warm, muted palette inspired by Claude Code / Codex: one accent, dimmed
+// chrome, soft body text. Colour is used sparingly so the layout carries the
+// hierarchy instead of a rainbow of hues.
 var (
-	colorCyan   = lipgloss.Color("51")
-	colorPurple = lipgloss.Color("141")
-	colorGreen  = lipgloss.Color("42")
-	colorRed    = lipgloss.Color("203")
-	colorOrange = lipgloss.Color("214")
-	colorGray   = lipgloss.Color("244")
-	colorDark   = lipgloss.Color("240")
-	colorPink   = lipgloss.Color("213")
-	colorBlack  = lipgloss.Color("0")
+	colorAccent = lipgloss.Color("209") // warm orange — focus / primary
+	colorText   = lipgloss.Color("252") // soft white body
+	colorMuted  = lipgloss.Color("245") // inactive labels / status
+	colorDim    = lipgloss.Color("238") // rules, hints, meta
+	colorOK     = lipgloss.Color("114")
+	colorErr    = lipgloss.Color("203")
+	colorWarn   = lipgloss.Color("214")
+	colorSelBg  = lipgloss.Color("236")
 
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorCyan)
-	accentStyle = lipgloss.NewStyle().Foreground(colorPurple)
-	dimStyle    = lipgloss.NewStyle().Foreground(colorGray)
-	mutedStyle  = lipgloss.NewStyle().Foreground(colorDark)
-	keyStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorPink)
-	selStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorBlack).Background(colorCyan)
-	disStyle    = lipgloss.NewStyle().Foreground(colorDark)
-	okStyle     = lipgloss.NewStyle().Foreground(colorGreen)
-	errStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorRed)
-	spinStyle   = lipgloss.NewStyle().Foreground(colorPurple)
-	badge       = lipgloss.NewStyle().Foreground(colorBlack).Background(colorOrange).Padding(0, 1)
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
+	accentStyle = lipgloss.NewStyle().Foreground(colorAccent)
+	dimStyle    = lipgloss.NewStyle().Foreground(colorDim)
+	mutedStyle  = lipgloss.NewStyle().Foreground(colorMuted)
+	textStyle   = lipgloss.NewStyle().Foreground(colorText)
+	keyStyle    = lipgloss.NewStyle().Foreground(colorMuted)
+	selStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorText).Background(colorSelBg)
+	disStyle    = lipgloss.NewStyle().Foreground(colorDim)
+	okStyle     = lipgloss.NewStyle().Foreground(colorOK)
+	errStyle    = lipgloss.NewStyle().Foreground(colorErr)
+	warnStyle   = lipgloss.NewStyle().Foreground(colorWarn)
+	spinStyle   = lipgloss.NewStyle().Foreground(colorAccent)
+	badge       = lipgloss.NewStyle().Foreground(colorWarn)
 
-	panel     = lipgloss.NewStyle().Padding(1, 3)
+	panel     = lipgloss.NewStyle().Padding(1, 2)
 	taskPanel = lipgloss.NewStyle().Padding(0, 2)
-	formPanel = lipgloss.NewStyle().Padding(1, 3)
+	formPanel = lipgloss.NewStyle().Padding(1, 2)
 )
 
 func (m Model) View() string {
@@ -56,9 +60,8 @@ func (m Model) View() string {
 func (m Model) viewMenu() string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("◈ ng-ray") + "  " + dimStyle.Render(version.Version) + "\n")
+	b.WriteString(titleStyle.Render("ngray") + "  " + dimStyle.Render(version.Version) + "\n")
 	b.WriteString(m.statusLine() + "\n\n")
-	b.WriteString(dimStyle.Render(strings.Repeat("─", 54)) + "\n\n")
 
 	for i, it := range m.items {
 		b.WriteString(m.menuRow(i, it))
@@ -67,14 +70,14 @@ func (m Model) viewMenu() string {
 		}
 	}
 
-	b.WriteString("\n" + dimStyle.Render(strings.Repeat("─", 54)) + "\n")
+	b.WriteString("\n")
 	// Explain the highlighted item so the menu is self-documenting.
 	if m.cursor >= 0 && m.cursor < len(m.items) {
 		if d := m.items[m.cursor].desc; d != "" {
-			b.WriteString(dimStyle.Render(wrapWords("  "+d, 54)) + "\n\n")
+			b.WriteString(dimStyle.Render(wrapWords("    "+d, 56)) + "\n\n")
 		}
 	}
-	b.WriteString(mutedStyle.Render("  ↑↓ navigate  ·  1-9 jump  ·  enter run  ·  q quit"))
+	b.WriteString(dimStyle.Render("    ↑↓ move  ·  1-9 jump  ·  enter run  ·  q quit"))
 	return panel.Render(b.String())
 }
 
@@ -84,11 +87,11 @@ func (m Model) menuRow(i int, it item) string {
 
 	switch {
 	case dis:
-		return disStyle.Render(fmt.Sprintf("  %s  %-28s %s\n", it.key, it.name, reason))
+		return disStyle.Render(fmt.Sprintf("    %s  %-26s %s\n", it.key, it.name, reason))
 	case selected:
-		return selStyle.Render(fmt.Sprintf(" %s  %-27s", it.key, it.name)) + "\n"
+		return selStyle.Render(fmt.Sprintf("  ❯ %s  %-25s", it.key, it.name)) + "\n"
 	default:
-		return fmt.Sprintf("  %s  %s\n", keyStyle.Render(it.key), it.name)
+		return "    " + keyStyle.Render(it.key) + "  " + textStyle.Render(it.name) + "\n"
 	}
 }
 
@@ -120,8 +123,8 @@ func (m Model) viewSetupForm() string {
 	f := m.form
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("◈ Setup Wizard") + "\n")
-	b.WriteString(dimStyle.Render("Review settings below. Tab/↑↓ move  ·  enter to edit  ·  space to toggle.") + "\n\n")
+	b.WriteString(titleStyle.Render("Setup") + "\n")
+	b.WriteString(dimStyle.Render("review, then run setup") + "\n\n")
 
 	b.WriteString(formTextRow(f, formFieldIP, "Server IP"))
 	b.WriteByte('\n')
@@ -139,15 +142,15 @@ func (m Model) viewSetupForm() string {
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render("  xray · shoes · sing-box  — configured in config.yml") + "\n")
 
-	b.WriteString("\n" + dimStyle.Render(strings.Repeat("─", 54)) + "\n\n")
+	b.WriteString("\n")
 
 	if f.focused == formFieldProceed {
-		b.WriteString(selStyle.Render("  ›  Proceed with setup  ") + "\n")
+		b.WriteString(selStyle.Render("  ❯ Proceed with setup  ") + "\n")
 	} else {
-		b.WriteString(accentStyle.Render("  ›  Proceed with setup") + "\n")
+		b.WriteString(accentStyle.Render("  › Proceed with setup") + "\n")
 	}
 
-	b.WriteString("\n" + mutedStyle.Render("  tab/↑↓ navigate  ·  enter edit/run  ·  space toggle  ·  esc back"))
+	b.WriteString("\n" + dimStyle.Render("  tab/↑↓ move  ·  enter edit/run  ·  space toggle  ·  esc back"))
 	return formPanel.Render(b.String())
 }
 

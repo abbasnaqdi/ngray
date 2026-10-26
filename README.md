@@ -110,6 +110,23 @@ ngray sni test rust-lang.org          # check if an SNI is REALITY-fit
 
 ---
 
+## Cloudflare fronting (optional)
+
+Put a real domain in front of the subscription and a service so the server IP is
+hidden and the cert is trusted. The token is read from `NGRAY_CF_TOKEN`,
+`CF_API_TOKEN`, or `/etc/ngray/cf_token` (0600) — never hardcoded.
+
+```bash
+ngray domain set app.example.com          # enable CDN fronting in config.yml
+ngray domain dns app.example.com          # upsert the proxied A record
+ngray domain issue app.example.com        # issue + install an Origin certificate
+ngray domain check app.example.com        # verify DNS, CF edge, origin TLS
+ngray server setup                        # apply nginx + bundle
+```
+
+Set Cloudflare SSL/TLS to **Full (strict)**. The origin cert is an ECDSA
+Cloudflare Origin CA certificate valid for the domain (+ `www.`).
+
 ## Commands
 
 | Command | What it does |
@@ -123,7 +140,10 @@ ngray sni test rust-lang.org          # check if an SNI is REALITY-fit
 | `sni test [host…]` | REALITY fitness (TLS1.3 + h2 + X25519) + latency, two-phase sweep (scales to 1000+) |
 | `sni discover` | scan /24 near your server to find nearby REALITY-fit IPs |
 | `domain check <d>` | is a domain a working Cloudflare-fronted path to this server? (DNS via 1.1.1.1/9.9.9.9/AdGuard, CF edge status, origin TLS) with scenario advice |
-| `domain cert <crt> <key>` | install a Cloudflare Origin Certificate so the WS/subscription domain serves valid TLS (fixes CF error 525) |
+| `domain set <d>` | enable Cloudflare fronting for a domain in `config.yml` |
+| `domain issue <d>` | issue + install a Cloudflare Origin certificate (token from env or `/etc/ngray/cf_token`) |
+| `domain dns <d> [--ip IP]` | create/update the Cloudflare A record (`--proxied=false` for grey-cloud) |
+| `domain cert <crt> <key>` | install an existing Cloudflare Origin Certificate + key |
 | `proxy add <d> --target <url>` | serve an arbitrary HTTP(S) service behind a trusted domain (nginx reverse proxy) |
 | `proxy list` / `proxy remove <d>` | list / remove configured proxy routes |
 | `config init` | write a default config.yml (auto-detects location) |
