@@ -69,6 +69,20 @@ The token (32 hex chars) is generated once and persisted in `proxy-state.json`
 so the subscribe URL is stable across re-runs. The self-signed cert is
 regenerated automatically when the server IP changes (`CertHasIPSAN` check).
 
+## Reverse proxy routes
+
+`config.proxy_routes` (or `ngray proxy add <domain> --target <url>`) serves an
+arbitrary HTTP(S) service behind a trusted domain. Each route:
+
+1. gets an SNI entry in the 443 `ssl_preread` map, pointing at `127.0.0.1:8445`;
+2. is rendered as a loopback TLS server on `8445` that presents the route's
+   cert/key and `proxy_pass`es to `target` with `proxy_ssl_server_name on`
+   (so HTTPS upstreams get the right SNI) and `Host $proxy_host`.
+
+Backend ports: `8444` = Cloudflare-fronted subscription, `8445` = reverse proxy
+routes. Both are loopback-only and share the single 443 mux, so clients reach
+them only through their configured domain.
+
 ## Safety
 
 - **Firewall** (`internal/firewall`): all rules go in a dedicated `NGRAY` chain, populated

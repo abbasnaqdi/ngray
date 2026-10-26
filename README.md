@@ -298,5 +298,6 @@ Go 1.22+. No CGO. No apt dependencies on the build machine.
 | [docs/research-iran-dpi.md](docs/research-iran-dpi.md) | Per-operator DPI: MCI, Irancell/MTN, Rightel |
 | [docs/architecture.md](docs/architecture.md) | nginx SNI-mux, port ranges, state model |
 | [docs/research-2026.md](docs/research-2026.md) | ML-based DPI, emerging evasion techniques |
+| [docs/censorship-2026.md](docs/censorship-2026.md) | What works/deprecated in 2026 + opt-in upgrades (FinalMask, AWG 2.0, Gecko) |
 | [docs/roadmap.md](docs/roadmap.md) | Future cores (specced with config and link format) |
 | [docs/development.md](docs/development.md) | Dev guide: versioning, commit flow, adding cores |
