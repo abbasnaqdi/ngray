@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          VERSION=$(grep -oE '"[0-9]+\.[0-9]+\.[0-9][^"]*"' internal/version/version.go | tr -d '"')
+          COMMIT=${{ github.sha }}
+          SHORT=${COMMIT:0:7}
+          DATE=$(date -u +%Y-%m-%d)
+          LDFLAGS="-s -w -X github.com/abbasnaqdi/ng-ray/internal/version.Version=${VERSION} -X github.com/abbasnaqdi/ng-ray/internal/version.Commit=${SHORT} -X github.com/abbasnaqdi/ng-ray/internal/version.Date=${DATE}"
+          go build -trimpath -ldflags "$LDFLAGS" -o ngray-linux-${{ matrix.arch }} ./cmd/ngray
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ngray-linux-${{ matrix.arch }}
+          path: ngray-linux-${{ matrix.arch }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare release assets
+        run: |
+          cd dist
+          cp ../snis/candidates.sni .
+          sha256sum ngray-linux-* candidates.sni > SHA256SUMS
+          ls -lh
+
+      - name: Create release
+        run: |
+          VERSION=$(grep -oE '"[0-9]+\.[0-9]+\.[0-9][^"]*"' internal/version/version.go | tr -d '"')
+          SHORT=${{ github.sha }}
+          SHORT=${SHORT:0:7}
+          TAG="v${VERSION}-${SHORT}"
+          gh release create "$TAG" dist/* \
+            --title "ngray ${TAG}" \
+            --notes "Automated build from commit ${{ github.sha }}" \
+            --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

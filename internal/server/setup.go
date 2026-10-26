@@ -212,8 +212,11 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		if pr.Domain == "" || pr.CertFile == "" || pr.KeyFile == "" {
 			continue
 		}
+		if !fileExists(pr.CertFile) || !fileExists(pr.KeyFile) {
+			o.log("warning: proxy route %s skipped — cert/key not found", pr.Domain)
+			continue
+		}
 		const proxyBackend = 8445
-		ngCfg.Routes = append(ngCfg.Routes, nginx.Route{SNI: pr.Domain, Backend: proxyBackend})
 		ngCfg.ProxyRoutes = append(ngCfg.ProxyRoutes, nginx.ProxyRoute{
 			Domain:   pr.Domain,
 			Target:   pr.Target,
@@ -279,6 +282,9 @@ func candidatesNear(configPath string) string {
 	rel := filepath.Join(filepath.Dir(configPath), "snis", "candidates.sni")
 	if _, err := os.Stat(rel); err == nil {
 		return rel
+	}
+	if _, err := os.Stat("/etc/ngray/snis/candidates.sni"); err == nil {
+		return "/etc/ngray/snis/candidates.sni"
 	}
 	return filepath.Join("snis", "candidates.sni")
 }

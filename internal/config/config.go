@@ -14,12 +14,12 @@ import (
 const FileName = "config.yml"
 
 type Config struct {
-	Server       Server        `yaml:"server"`
-	Nginx        Nginx         `yaml:"nginx"`
-	Cores        Cores         `yaml:"cores"`
-	Subscription Subscription  `yaml:"subscription"`
-	ProxyRoutes  []ProxyRoute  `yaml:"proxy_routes,omitempty"`
-	Client       Client        `yaml:"client"`
+	Server       Server       `yaml:"server"`
+	Nginx        Nginx        `yaml:"nginx"`
+	Cores        Cores        `yaml:"cores"`
+	Subscription Subscription `yaml:"subscription"`
+	ProxyRoutes  []ProxyRoute `yaml:"proxy_routes,omitempty"`
+	Client       Client       `yaml:"client"`
 }
 
 type Server struct {
@@ -230,6 +230,10 @@ func Path() string {
 			return p
 		}
 	}
+	// Installed layout: binary in /usr/local/bin, config/state under /etc/ngray.
+	if _, err := os.Stat("/etc/ngray"); err == nil {
+		return filepath.Join("/etc/ngray", FileName)
+	}
 	return FileName
 }
 
@@ -261,7 +265,27 @@ func Save(path string, c *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	// Atomic write: temp file + rename.
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".config-*.yml")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 func (c *Config) Validate() error {
@@ -277,6 +301,9 @@ func (c *Config) Validate() error {
 	// SNI values are written verbatim into the nginx config; reject chars that
 	// would break the map block or allow config injection.
 	allSNIs := append(c.RouteSNIs(), c.CDNDomains()...)
+	for _, pr := range c.ProxyRoutes {
+		allSNIs = append(allSNIs, pr.Domain)
+	}
 	allSNIs = append(allSNIs, c.Subscription.FrontSNI)
 	for _, s := range allSNIs {
 		if s == "" {
@@ -289,7 +316,11 @@ func (c *Config) Validate() error {
 
 	// Each SNI may map to only one backend under nginx ssl_preread.
 	seen := map[string]bool{}
-	for _, s := range append(c.RouteSNIs(), c.CDNDomains()...) {
+	allRouteSNIs := append(append([]string{}, c.RouteSNIs()...), c.CDNDomains()...)
+	for _, pr := range c.ProxyRoutes {
+		allRouteSNIs = append(allRouteSNIs, pr.Domain)
+	}
+	for _, s := range allRouteSNIs {
 		if seen[s] {
 			return fmt.Errorf("SNI %q is used by more than one core; each REALITY SNI must be unique", s)
 		}
@@ -299,6 +330,29 @@ func (c *Config) Validate() error {
 		if seen[c.Subscription.FrontSNI] {
 			return fmt.Errorf("subscription.front_sni %q collides with a core route SNI; use a dedicated SNI", c.Subscription.FrontSNI)
 		}
+	}
+	// Validate proxy routes.
+	proxySeen := map[string]bool{}
+	for _, pr := range c.ProxyRoutes {
+		if pr.Domain == "" {
+			return fmt.Errorf("proxy route missing domain")
+		}
+		if strings.ContainsAny(pr.Domain, " \t\n\r;{}\"'\\") {
+			return fmt.Errorf("proxy domain %q contains invalid characters", pr.Domain)
+		}
+		if pr.Target == "" || !(strings.HasPrefix(pr.Target, "http://") || strings.HasPrefix(pr.Target, "https://")) {
+			return fmt.Errorf("proxy route %s: invalid target %q", pr.Domain, pr.Target)
+		}
+		if strings.ContainsAny(pr.Target, " \t\n\r;{}\"'\\$") {
+			return fmt.Errorf("proxy route %s: target contains invalid characters", pr.Domain)
+		}
+		if (pr.CertFile == "") != (pr.KeyFile == "") {
+			return fmt.Errorf("proxy route %s: cert and key must both be set or both empty", pr.Domain)
+		}
+		if proxySeen[pr.Domain] {
+			return fmt.Errorf("duplicate proxy route domain %q", pr.Domain)
+		}
+		proxySeen[pr.Domain] = true
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -394,29 +395,40 @@ func cmdProxy(args []string) error {
 		for i := 2; i < len(args); i++ {
 			switch args[i] {
 			case "--target":
-				if i+1 < len(args) {
-					target = args[i+1]
-					i++
+				if i+1 >= len(args) {
+					return fmt.Errorf("missing value for --target")
 				}
+				target = args[i+1]
+				i++
 			case "--cert":
-				if i+1 < len(args) {
-					certFile = args[i+1]
-					i++
+				if i+1 >= len(args) {
+					return fmt.Errorf("missing value for --cert")
 				}
+				certFile = args[i+1]
+				i++
 			case "--key":
-				if i+1 < len(args) {
-					keyFile = args[i+1]
-					i++
+				if i+1 >= len(args) {
+					return fmt.Errorf("missing value for --key")
 				}
+				keyFile = args[i+1]
+				i++
+			default:
+				return fmt.Errorf("unknown flag %q", args[i])
 			}
 		}
 		if target == "" {
 			target = "http://127.0.0.1:8080"
 		}
-		// validate target
-		if !(strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://")) {
-			return fmt.Errorf("target must start with http:// or https://")
+		// strict target validation: parse as URL, require http/https scheme with host,
+		// and reject any control/special characters that could break nginx config.
+		u, err := url.Parse(target)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("invalid target %q: must be http:// or https:// URL with a host", target)
 		}
+		if strings.ContainsAny(target, " \t\r\n;{}\"'\\$") {
+			return fmt.Errorf("target contains invalid characters")
+		}
+		target = u.String()
 		// cert resolution: if not provided, try CF origin cert paths
 		if certFile == "" {
 			certFile = "/etc/ngray/cf-origin-" + dom + ".crt"
@@ -435,8 +447,9 @@ func cmdProxy(args []string) error {
 			CertFile: certFile,
 			KeyFile:  keyFile,
 		})
-		// also set subscription domain
-		cfg.Subscription.FrontSNI = dom
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
 		if err := config.Save(config.Path(), cfg); err != nil {
 			return err
 		}
@@ -647,6 +660,9 @@ func candidatesPath() string {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	if _, err := os.Stat("/etc/ngray/snis/candidates.sni"); err == nil {
+		return "/etc/ngray/snis/candidates.sni"
 	}
 	return rel
 }

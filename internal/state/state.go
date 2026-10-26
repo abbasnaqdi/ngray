@@ -42,12 +42,12 @@ type State struct {
 // Deploy is the snapshot of the last successful provisioning, so client output
 // can be rendered without re-running the build.
 type Deploy struct {
-	Endpoints     []links.Endpoint  `json:"endpoints,omitempty"`
-	Notes         map[string]string `json:"notes,omitempty"`
-	SubURL             string `json:"sub_url,omitempty"`              // HTTPS primary (IP:port, self-signed)
-	SubHTTPURL         string `json:"sub_http_url,omitempty"`         // HTTP fallback
-	SubSingboxURL      string `json:"sub_singbox_url,omitempty"`      // sing-box JSON (IP:port)
-	SubCertFingerprint string `json:"sub_cert_fingerprint,omitempty"` // SHA256 of sub TLS cert
+	Endpoints          []links.Endpoint  `json:"endpoints,omitempty"`
+	Notes              map[string]string `json:"notes,omitempty"`
+	SubURL             string            `json:"sub_url,omitempty"`              // HTTPS primary (IP:port, self-signed)
+	SubHTTPURL         string            `json:"sub_http_url,omitempty"`         // HTTP fallback
+	SubSingboxURL      string            `json:"sub_singbox_url,omitempty"`      // sing-box JSON (IP:port)
+	SubCertFingerprint string            `json:"sub_cert_fingerprint,omitempty"` // SHA256 of sub TLS cert
 
 	// Cloudflare-fronted subscription on the domain (no port, valid CF cert).
 	SubDomainURL        string `json:"sub_domain_url,omitempty"`         // base64 list
@@ -60,6 +60,9 @@ func Path() string {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	if _, err := os.Stat("/etc/ngray"); err == nil {
+		return filepath.Join("/etc/ngray", FileName)
 	}
 	return FileName
 }

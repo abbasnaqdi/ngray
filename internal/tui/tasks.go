@@ -278,5 +278,8 @@ func candidatesPath() string {
 			return p
 		}
 	}
+	if _, err := os.Stat("/etc/ngray/snis/candidates.sni"); err == nil {
+		return "/etc/ngray/snis/candidates.sni"
+	}
 	return rel
 }

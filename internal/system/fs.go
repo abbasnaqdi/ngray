@@ -16,7 +16,7 @@ func (e *Env) Path(p string) string {
 // WriteFile creates parent dirs and writes data at the (root-prefixed) path.
 func (e *Env) WriteFile(path string, data []byte, mode os.FileMode) error {
 	p := e.Path(path)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		return err
 	}
 	return os.WriteFile(p, data, mode)
@@ -26,7 +26,7 @@ func (e *Env) WriteString(path, data string, mode os.FileMode) error {
 	return e.WriteFile(path, []byte(data), mode)
 }
 
-func (e *Env) MkdirAll(path string) error { return os.MkdirAll(e.Path(path), 0o755) }
+func (e *Env) MkdirAll(path string) error { return os.MkdirAll(e.Path(path), 0o750) }
 
 func (e *Env) ReadFile(path string) ([]byte, error) { return os.ReadFile(e.Path(path)) }
 

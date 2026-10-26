@@ -204,7 +204,7 @@ events {
 		}
 		backend := pr.Backend
 		if backend <= 0 {
-			backend = 8444
+			backend = 8445
 		}
 		fmt.Fprintf(&b, `
     server {
@@ -214,7 +214,7 @@ events {
         ssl_protocols       TLSv1.2 TLSv1.3;
         server_name %s;
         location / {
-            proxy_pass %s;
+            proxy_pass "%s";
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
