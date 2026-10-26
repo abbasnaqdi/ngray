@@ -68,6 +68,25 @@ The detailed reasoning is in [docs/protocols.md](docs/protocols.md) and [docs/re
 
 ## Quickstart
 
+### One-command install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abbasnaqdi/ngray/main/install.sh | sudo bash
+```
+
+Downloads the latest prebuilt binary from GitHub Releases (verified with
+SHA256SUMS), installs it to `/usr/local/bin/ngray`, fetches the SNI list,
+initializes `/etc/ngray/config.yml`, and hands off to the TUI. If no release
+binary is available yet, it builds from source and installs Go if missing.
+Every push to `main` republishes the binary, so re-running this upgrades in
+place.
+
+### Update a source checkout
+
+```bash
+bash scripts/update.sh     # fetch origin/main, rebuild, reinstall
+```
+
 ### Deploy to a server
 
 ```bash

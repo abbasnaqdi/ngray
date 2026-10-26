@@ -12,6 +12,11 @@ PREFIX ?= /usr/local
 SUDO := $(shell [ -w $(PREFIX)/bin ] 2>/dev/null && echo "" || echo sudo)
 
 build:
+	@command -v go >/dev/null 2>&1 || { \
+		echo "error: Go is not installed."; \
+		echo "  curl -fsSL https://go.dev/dl/go1.26.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xz"; \
+		echo "  export PATH=\$$PATH:/usr/local/go/bin"; \
+		exit 1; }
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o ngray ./cmd/ngray
 
 install: build
