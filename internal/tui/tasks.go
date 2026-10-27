@@ -62,10 +62,28 @@ func buildItems() []item {
 		{key: "p", name: "Domain / proxy",
 			desc:         "Put a domain in front of the subscription and/or a service: Cloudflare Origin cert, DNS A record, reverse proxy. Token is cached in /etc/ngray/cf_token.",
 			domainBefore: true},
+		{key: "u", name: "Update ngray",
+			desc: "Replace ngray with the latest release (SHA256-verified) or, when no release exists, rebuild from this checkout via scripts/update.sh. Needs root; tells you the version it lands on.",
+			task: taskSelfUpdate},
 		{key: "9", name: "Regenerate credentials",
 			desc: "Wipe ALL keys/passwords/ports + the subscribe token (press 9 twice to confirm). Next setup issues fresh ones — every existing client link stops working.",
 			task: taskRegen},
 	}
+}
+
+// taskSelfUpdate replaces the running ngray with the latest release (or a
+// source rebuild when the repo has none yet). The binary swap takes effect on
+// the next launch — the TUI keeps running the old image until quit.
+func taskSelfUpdate(ctx context.Context, emit func(string)) error {
+	err := server.SelfUpdate(ctx, func(f string, a ...any) {
+		emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...))
+	})
+	if err != nil {
+		return err
+	}
+	emit("")
+	emit(okStyle.Render("✓ done — press q, then start `sudo ngray` again to run the new binary"))
+	return nil
 }
 
 func taskRegenSNIs(ctx context.Context, emit func(string)) error {

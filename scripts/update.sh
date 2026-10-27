@@ -17,7 +17,7 @@ fi
 
 if ! command -v go >/dev/null 2>&1; then
     echo "error: Go is not installed. Install it with:" >&2
-    echo "  curl -fsSL https://go.dev/dl/go1.26.0.$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz \\" >&2
+    echo "  curl -fsSL https://go.dev/dl/go1.24.0.$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz \\" >&2
     echo "    | sudo tar -C /usr/local -xz" >&2
     echo "  export PATH=\$PATH:/usr/local/go/bin" >&2
     exit 1

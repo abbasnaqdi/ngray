@@ -24,8 +24,20 @@ No domain required. No manual SNI selection. No configuration knowledge required
   7  Firewall
   8  Doctor
   p  Domain / proxy   (Cloudflare cert + DNS + reverse proxy)
+  u  Update ngray     (self-update: release w/ SHA256, or source rebuild)
   9  Regenerate credentials
 ```
+
+Updating ngray itself is one command — no git, no Go, no scripts:
+
+```bash
+sudo ngray update --self      # CLI, same as menu item `u`
+```
+
+It replaces the binary with the latest release (SHA256-verified against the
+published SHA256SUMS and refreshes the SNI pool). If the repo has no release
+yet (private / Actions billing locked) and you are in a checkout, it falls
+back to `scripts/update.sh` (fetch + build + install) automatically.
 
 ---
 
@@ -82,10 +94,10 @@ binary is available yet, it builds from source and installs Go if missing.
 Every push to `main` republishes the binary, so re-running this upgrades in
 place.
 
-### Update a source checkout
+### Update
 
 ```bash
-bash scripts/update.sh     # fetch origin/main, rebuild, reinstall
+sudo ngray update --self    # one command; falls back to scripts/update.sh in a checkout
 ```
 
 ### Deploy to a server
