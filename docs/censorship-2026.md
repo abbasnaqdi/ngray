@@ -4,6 +4,18 @@ Status of the protocols ngray ships, and what is worth adding next. This is a
 living document — verify against the upstream release notes before relying on
 any item.
 
+## Security advisory (Oct 2026): upgrade your cores
+
+A compromise of several eMudhra intermediate CAs means any TLS-verifying core
+that trusts a stale CA store can be MITM'd. Fixed in **Xray v26.10.21**,
+**Shoes v0.3.5**, and **NaiveProxy v154.0.8037.49-5** (and current sing-box /
+Hysteria builds). ngray always installs the newest upstream release, so a fresh
+`server setup` is safe; an existing install should run:
+
+```bash
+ngray update        # upgrade every installed core
+```
+
 ## What still works (2026)
 
 | Region | Load-bearing shape | Notes |
