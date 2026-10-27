@@ -219,9 +219,12 @@ func Default() *Config {
 				ShadowTLS: &SingboxShadowTLS{Enabled: true, Port: 2443, SNI: "www.rust-lang.org"},
 			},
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087, 2096, 2052, 2082}, SNI: "www.rust-lang.org", Obfs: "salamander"},
+			// Fptn and AmneziaWG are UDP-heavy and Iran-drop UDP wholesale:
+			// useful for other regions (Russia for AWG, blackout-ICMP for
+			// fptn) but noise on an Iran VPS. Opt-in, not defaults.
 			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org", User: "ngray"},
 			Mieru:     MieruCore{Enabled: true, Port: 14000, User: "ngray"},
-			AmneziaWG: AmneziaWGCore{Enabled: true, Port: 51820},
+			AmneziaWG: AmneziaWGCore{Enabled: false, Port: 51820},
 		},
 		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org", HTTPSPort: 2053},
 		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "tuic", "shadowtls", "singbox_json", "subscription", "mieru", "amneziawg", "fptn"}},

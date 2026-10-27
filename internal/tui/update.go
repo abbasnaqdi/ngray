@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/abbasnaqdi/ng-ray/internal/cf"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
@@ -37,9 +39,18 @@ func newSetupForm(cfg *config.Config) setupForm {
 
 func newDomainForm(cfg *config.Config) domainForm {
 	d := domainForm{dns: true}
-	if cfg != nil && cfg.Cores.Xray.CDN != nil {
-		d.domain = cfg.Cores.Xray.CDN.Domain
+	if cfg == nil {
+		return d
 	}
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Domain != "" {
+		d.domain = cdn.Domain
+	}
+	for _, r := range cfg.ProxyRoutes {
+		if d.domain != "" && r.Domain == d.domain && r.Target != "" {
+			d.target = r.Target
+		}
+	}
+	d.cfToken = cf.TokenFromEnvOrFile() // masked in the view; never echoed
 	return d
 }
 
@@ -118,6 +129,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskEnd:
 		m.running = false
 		m.taskErr = msg.err
+		// After a successful self-update the running image is stale; offer a
+		// one-key restart (the task view can't swap mid-render).
+		if m.taskErr == nil && m.taskName == "Update ngray" {
+			m.restartAfter = true
+		}
 		m.vp.SetContent(m.joinWrapped())
 		m.vp.GotoBottom()
 		return m, nil
@@ -194,8 +210,9 @@ func (m Model) selectItem(it item) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if it.domainBefore {
-		cfg, _ := config.LoadOrDefault(config.Path())
-		m.domain = newDomainForm(cfg)
+		// Keep the in-memory form: visits cache what the user typed (the
+		// swp token stays in memory only, the domain/target prefill from
+		// config). A fresh prefill happens once at New().
 		m.screen = screenDomainForm
 		return m, nil
 	}
@@ -385,13 +402,49 @@ func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// validateDomainField checks values right in the form (before the task runs),
+// returning an inline hint instead of a dead stop at CF-apply time.
+func validateDomainField(d domainForm) string {
+	dom := strings.TrimSpace(strings.ToLower(d.domain))
+	switch {
+	case dom == "":
+		return "domain is required — press enter and type or paste it"
+	case strings.Contains(dom, "/") || strings.Contains(dom, " "):
+		return dom + " doesn't look like a domain (scheme/paths are not allowed here)"
+	case strings.Count(dom, ".") < 1:
+		return dom + " is missing a TLD — enter the full zone (e.g. example.com)"
+	}
+	t := strings.TrimSpace(d.target)
+	if t == "" {
+		return ""
+	}
+	if !strings.HasPrefix(t, "http://") && !strings.HasPrefix(t, "https://") {
+		return "target must start with http:// or https:// — socks only works inside the cores, nginx proxies plain HTTP(S) URLs"
+	}
+	host, port := "", ""
+	if u, err := url.Parse(t); err == nil {
+		host, port = u.Hostname(), u.Port()
+	}
+	if host == "" {
+		return "target URL has no host — e.g. http://127.0.0.1:8443"
+	}
+	if port == "" && strings.HasPrefix(t, "http") {
+		return "" // default ports (80/443) are valid proxy_pass targets
+	}
+	if n, err := strconv.Atoi(port); err == nil && (n <= 0 || n > 65535) {
+		return "target port " + port + " is out of range"
+	}
+	return ""
+}
+
 func (m Model) submitDomainForm() (tea.Model, tea.Cmd) {
 	d := m.domain
 	d.domain = strings.TrimSpace(strings.ToLower(d.domain))
-	d.hint = ""
-	if d.domain == "" {
-		d.editing, d.focused, d.editBuf = true, dfDomain, d.domain
-		d.hint = "domain is required — press enter and type/paste it"
+	d.hint = validateDomainField(d)
+	if d.hint != "" {
+		if strings.TrimSpace(strings.ToLower(d.domain)) == "" {
+			d.focused = dfDomain // focus where the problem is
+		}
 		m.domain = d
 		return m, nil
 	}
@@ -405,6 +458,13 @@ func (m Model) submitDomainForm() (tea.Model, tea.Cmd) {
 // ── Task view ─────────────────────────────────────────────────────────────────
 
 func (m Model) updateTask(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.restartAfter && (msg.String() == "enter" || msg.String() == "r") {
+		// Re-exec THIS binary (just replaced on disk) from itself: exec
+		// hands the tty to the new image and the old process exits after.
+		c := exec.Command(m.self)
+		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+		return m, tea.ExecProcess(c, func(error) tea.Msg { return tea.Quit() })
+	}
 	switch msg.String() {
 	case "esc", "backspace", "q":
 		if m.cancel != nil {

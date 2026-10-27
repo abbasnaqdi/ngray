@@ -212,8 +212,8 @@ func (m Model) viewDomainForm() string {
 	d := m.domain
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("Domain / proxy") + "\n")
-	b.WriteString(dimStyle.Render("serve the subscription and/or a service behind a trusted domain") + "\n\n")
+	b.WriteString(titleStyle.Render("Domain / proxy") + "  " + dimStyle.Render("v"+version.Version) + "\n")
+	b.WriteString(dimStyle.Render("serve the subscription behind a trusted domain, with one step for cert+DNS") + "\n\n")
 	if d.hint != "" {
 		b.WriteString(errStyle.Render("  ✗ "+d.hint) + "\n\n")
 	}
@@ -234,13 +234,13 @@ func (m Model) viewDomainForm() string {
 		return marker + dimStyle.Render(lbl) + textStyle.Render(val)
 	}
 
-	b.WriteString(row(dfDomain, "Domain", dash(d.domain), "enter to edit", d.editing) + "\n")
-	b.WriteString(row(dfTarget, "Target", dash(d.target), "enter to edit (optional)", d.editing) + "\n")
+	b.WriteString(row(dfDomain, "Domain", dash(d.domain), "enter to edit — punycode is fine", d.editing) + "\n")
+	b.WriteString(row(dfTarget, "Target", dash(d.target), "enter to edit — optional", d.editing) + "\n")
 	tok := "—"
 	if d.cfToken != "" {
 		tok = maskToken(d.cfToken)
 	}
-	b.WriteString(row(dfToken, "CF token", tok, "enter to edit (optional)", d.editing) + "\n")
+	b.WriteString(row(dfToken, "CF token", tok, "enter to edit — cached after apply", d.editing) + "\n")
 
 	dnsMark := "○ disabled"
 	if d.dns {
@@ -252,15 +252,24 @@ func (m Model) viewDomainForm() string {
 		b.WriteString("    " + dimStyle.Render(fmt.Sprintf("%-10s", "DNS A")) + textStyle.Render(dnsMark) + "\n")
 	}
 
+	// One short paragraph below the fields: what applies and when, so the
+	// form is self-explanatory without leaving the screen.
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  leave CF token empty to keep an existing cert") + "\n")
-	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(strings.Join([]string{
+		"  ✓ CF token — an API Token (not the Global API Key); it is cached at",
+		"    /etc/ngray/cf_token (0600) and re-prefilled next time.",
+		"  ✓ Domain — the Cloudflare zone holding the A record.",
+		"  ✓ DNS A — creates/updates the proxied A record → your server IP.",
+		"  → Target — optional reverse-proxy behind the same domain, format",
+		"    http://127.0.0.1:PORT. Leave empty if you only need the subscribe link.",
+	}, "\n")) + "\n\n")
+
 	if d.focused == dfProceed {
 		b.WriteString(selStyle.Render("  ❯ Apply domain / proxy  ") + "\n")
 	} else {
 		b.WriteString(accentStyle.Render("  › Apply domain / proxy") + "\n")
 	}
-	b.WriteString("\n" + dimStyle.Render("  tab/↑↓ move  ·  enter edit/run  ·  space toggle  ·  esc back"))
+	b.WriteString("\n" + dimStyle.Render("  tab/↑↓ move  ·  enter edit  ·  space toggle  ·  esc back"))
 	return formPanel.Render(b.String())
 }
 
@@ -286,12 +295,21 @@ func (m Model) viewTask() string {
 	case m.running:
 		head = m.spin.View() + " " + titleStyle.Render(m.taskName) + "  " + dimStyle.Render("running…")
 	case m.taskErr != nil:
-		head = errStyle.Render("✗ "+m.taskName) + "  " + errStyle.Render(m.taskErr.Error())
+		head = errStyle.Render("✗ " + m.taskName)
 	default:
 		head = okStyle.Render("✓ "+m.taskName) + "  " + dimStyle.Render("done")
 	}
 	body := taskPanel.Width(maxInt(m.width-4, 20)).Render(m.vp.View())
-	foot := mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  q quit")
+	foot := mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  q quit") + "  " + dimStyle.Render("v"+version.Version)
+	if m.restartAfter && m.taskErr == nil {
+		foot = mutedStyle.Render("  enter restart to the new binary  ·  esc stay here") + "  " + dimStyle.Render("v"+version.Version)
+	}
+	// Surface the failure as a readable box instead of a single overflow line.
+	if m.taskErr != nil {
+		reason := wrapWords(m.taskErr.Error(), 60)
+		box := lipgloss.NewStyle().Padding(0, 1).Render("  " + reason)
+		return head + "\n" + body + "\n" + errStyle.Render(box) + "\n" + foot
+	}
 	return head + "\n" + body + "\n" + foot
 }
 

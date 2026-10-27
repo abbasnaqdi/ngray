@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/abbasnaqdi/ng-ray/internal/version"
 )
 
 func TestViewRenders(t *testing.T) {
@@ -25,10 +27,13 @@ func TestDomainFormView(t *testing.T) {
 	m.domain.domain = "app.example.com"
 	m.domain.target = "http://127.0.0.1:8080"
 	out := m.View()
-	for _, want := range []string{"Domain / proxy", "Domain", "Target", "CF token", "Apply"} {
+	for _, want := range []string{"Domain / proxy", "Domain", "Target", "CF token", "Apply", "cached", "http://127.0.0.1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("domain form missing %q", want)
 		}
+	}
+	if !strings.Contains(out, version.Version) {
+		t.Errorf("domain form missing version chip %q", version.Version)
 	}
 }
 
@@ -108,8 +113,11 @@ func TestDomainFormEmptyDomainHint(t *testing.T) {
 	m.domain.focused = dfProceed
 	updated, _ := m.Update(keyMsg(tea.KeyEnter))
 	m2 := updated.(Model)
-	if !m2.domain.editing || m2.domain.focused != dfDomain || m2.domain.hint == "" {
-		t.Errorf("expected edit mode on the domain field with a hint, got %+v", m2.domain)
+	if m2.domain.focused != dfDomain || m2.domain.hint == "" || m2.domain.domain != "" {
+		t.Fatalf("expected a hint on the domain field, got %+v", m2.domain)
+	}
+	if m2.screen != screenDomainForm {
+		t.Errorf("staying on the form, got screen %d", m2.screen)
 	}
 }
 

@@ -94,6 +94,8 @@ type Model struct {
 
 	armRegen bool // menu key "9" pressed twice → really wipe credentials
 
+	restartAfter bool // self-update finished → next enter re-launches the binary
+
 	domain domainForm
 
 	// header status (async)

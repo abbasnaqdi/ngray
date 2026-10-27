@@ -119,7 +119,9 @@ cores:
     user: ngray
 
   amneziawg:
-    enabled: true         # obfuscated WireGuard — junk headers, Russia-grade
+    enabled: false        # obfuscated WireGuard — junk headers, Russia-grade.
+                          # Iran drops UDP wholesale: keep off for IR servers,
+                          # enable for Russia. v2 params below also opt-in.
     port: 51820
     # v2: true            # AWG 2.0: cookie/transport padding (S3/S4) + H1–H4 as
                           # disjoint ranges. Needs 2.0-capable awg tools/kernel

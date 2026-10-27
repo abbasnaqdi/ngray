@@ -101,9 +101,22 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (json.Ra
 	return ar.Result, nil
 }
 
-// VerifyToken checks the token with the /user/tokens/verify endpoint.
+// VerifyToken checks the token with the /user/tokens/verify endpoint and adds
+// the two common misconfiguration hints when the failure looks like a wrong
+// credential type (the #1 paste error is the Global API Key or an Origin CA
+// key instead of an API Token).
 func (c *Client) VerifyToken(ctx context.Context) error {
 	_, err := c.do(ctx, http.MethodGet, "/user/tokens/verify", nil)
+	if err == nil {
+		return nil
+	}
+	e := err.Error()
+	switch {
+	case strings.Contains(e, "9109") || strings.Contains(e, "not a valid token") ||
+		strings.Contains(e, "Authentication error") || strings.Contains(e, "400 Bad Request"):
+		return fmt.Errorf("%w\n  hint: use an API Token, not the Global API Key or a password:\n  dash.cloudflare.com → My Profile → API Tokens → Create Token\n  permissions: Zone · DNS · Edit   (+ Zone · Origin CA · Edit not needed)",
+			err)
+	}
 	return err
 }
 
