@@ -32,9 +32,7 @@
 | QUIC (standard h3 stack)     | TUIC v5 via shoes + singbox              |
 | TLS-mimic (blocks deep DPI)  | ShadowTLS v3 via singbox                 |
 | CDN-fronted (IP-independent) | VLESS+WS+TLS via xray behind Cloudflare  |
-| Full-tunnel VPN              | fptn                                     |
 | ML-resistant tunnel          | mieru (no fingerprint)                   |
-| Obfuscated WireGuard         | AmneziaWG (Russia-grade)                 |
 
 ## SNI assignment strategy
 
@@ -77,7 +75,7 @@ Two tiers are produced per deployment, each in two formats:
 
 | URL | Format | Best for |
 |-----|--------|----------|
-| `https://www.DOMAIN/sb/TOKEN` | sing-box JSON (primary, CF) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru + AmneziaWG** |
+| `https://www.DOMAIN/sb/TOKEN` | sing-box JSON (primary, CF) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru** |
 | `https://www.DOMAIN/s/TOKEN` | base64 URI list (primary, CF) | v2rayNG/N · Streisand · Shadowrocket — URI configs only |
 | `https://SERVER-IP:2053/sb/TOKEN` | sing-box JSON (fallback) | direct-IP, self-signed — skip-cert-verify |
 | `https://SERVER-IP:2053/s/TOKEN` | base64 URI list (fallback) | direct-IP, self-signed |

@@ -131,8 +131,8 @@ func cmdConfig(args []string) error {
 		fmt.Println("wrote", path)
 		return nil
 	}
-	fmt.Printf("config valid: nginx:%d  subscription:%v  hysteria2:%v  fptn:%v\n",
-		c.Nginx.Port, c.Subscription.Enabled, c.Cores.Hysteria2.Enabled, c.Cores.Fptn.Enabled)
+	fmt.Printf("config valid: nginx:%d  subscription:%v  hysteria2:%v\n",
+		c.Nginx.Port, c.Subscription.Enabled, c.Cores.Hysteria2.Enabled)
 	return nil
 }
 
@@ -811,9 +811,6 @@ func rulesFromConfig(c *config.Config, st *state.State) firewall.Rules {
 	}
 	if c.Cores.Hysteria2.Enabled {
 		r.UDP = append(r.UDP, c.Cores.Hysteria2.Port)
-	}
-	if c.Cores.Fptn.Enabled {
-		r.TCP = append(r.TCP, c.Cores.Fptn.Port)
 	}
 	return r
 }

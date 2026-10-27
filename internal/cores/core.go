@@ -1,6 +1,6 @@
 // Package cores installs and configures each proxy core and reports the nginx
 // routes and client endpoints it exposes. xray/shoes/sing-box sit behind
-// nginx:443; hysteria2 and fptn are independent cores with their own listeners.
+// nginx:443; hysteria2 is an independent core with its own listener.
 package cores
 
 import (
@@ -28,7 +28,7 @@ type Plan struct {
 type Result struct {
 	Routes    []nginx.Route     // SNI -> backend (empty for independent cores)
 	Endpoints []links.Endpoint  // client share configs
-	Notes     map[string]string // out-of-band info (e.g. fptn token)
+	Notes     map[string]string // out-of-band info (e.g. mieru client JSON)
 }
 
 type Core interface {
@@ -43,7 +43,7 @@ type Core interface {
 
 // Registry is the ordered set of supported cores.
 func Registry() []Core {
-	return []Core{Xray{}, Shoes{}, Singbox{}, Hysteria{}, Fptn{}, Mieru{}, AmneziaWG{}}
+	return []Core{Xray{}, Shoes{}, Singbox{}, Hysteria{}, Mieru{}}
 }
 
 // realityKeys returns (or generates and persists) the REALITY keypair for a core.

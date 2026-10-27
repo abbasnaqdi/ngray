@@ -113,6 +113,17 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 	if sandbox {
 		emit(badge.Render("sandbox") + " not root — writing under ./sandbox; run `sudo ngray` for a real server")
 	}
+	// Domain fronting configured in config.yml: make sure cert+DNS exist
+	// before provisioning so the CF-fronted paths come up on the same run.
+	cfg, _ := config.LoadOrDefault(config.Path())
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
+		if !certOK() {
+			emit(dimStyle.Render("• ") + "domain fronting enabled — preparing Cloudflare side…")
+			if err := cfEnsure(ctx, emit, cdn.Domain, true, ""); err != nil {
+				return fmt.Errorf("domain fronting prep failed: %w (re-run after fixing, or uncheck Domain fronting)", err)
+			}
+		}
+	}
 	d, err := server.Setup(ctx, server.Options{
 		ConfigPath:     config.Path(),
 		StatePath:      state.Path(),
@@ -243,9 +254,6 @@ func taskFirewall(ctx context.Context, emit func(string)) error {
 	if cfg.Cores.Hysteria2.Enabled {
 		r.UDP = append(r.UDP, cfg.Cores.Hysteria2.Port)
 	}
-	if cfg.Cores.Fptn.Enabled {
-		r.TCP = append(r.TCP, cfg.Cores.Fptn.Port)
-	}
 	emit(dimStyle.Render("plan (default-drop inbound):"))
 	for _, line := range r.Plan() {
 		emit("  • " + line)
@@ -296,7 +304,106 @@ func taskRegen(ctx context.Context, emit func(string)) error {
 	return nil
 }
 
-// taskDomain applies the domain/proxy form: caches the Cloudflare token,
+// cfEnsure verifies the CF token, then (re)issues the Origin cert and upserts
+// the DNS A record. Shared by the domain form and the setup wizard's
+// domain-fronting toggle. Token candidate order: explicit override (the form
+// value) → /etc/ngray/cf_token → env. Returns when no token is available
+// (caller decides), so a missing token is not a fatal setup error.
+func cfEnsure(ctx context.Context, emit func(string), domain string, wantDNS bool, tokenCandidate string) error {
+	token := tokenCandidate
+	if token == "" {
+		token = cf.TokenFromEnvOrFile()
+	}
+	if token == "" {
+		emit(warnStyle.Render("! ") + "no Cloudflare token — skipping cert/DNS (set it in the 'p  Domain / proxy' form first)")
+		return nil
+	}
+	c := cf.New(token)
+	emit(dimStyle.Render("• ") + "verifying Cloudflare token…")
+	if err := c.VerifyToken(ctx); err != nil {
+		return fmt.Errorf("Cloudflare token rejected: %w\n  hint: the token must be an API Token (40 chars) from dash.cloudflare.com → My Profile → API Tokens; if you pasted it earlier into the cached file, re-enter it fresh in the form", err)
+	}
+	emit(okStyle.Render("✓") + " token valid")
+	// Only cache the token AFTER it passed verification — a wrong paste never
+	// poisons /etc/ngray/cf_token and comes back prefilled next visit.
+	if tokenCandidate != "" && os.Geteuid() == 0 {
+		if err := writeAtomic("/etc/ngray/cf_token", []byte(tokenCandidate), 0o600); err == nil {
+			emit(okStyle.Render("✓") + " cached CF token in /etc/ngray/cf_token")
+		}
+	}
+	if certOK() {
+		emit(dimStyle.Render("• ") + "origin cert already present — skipping issuance")
+	} else {
+		emit(dimStyle.Render("• ") + "requesting Cloudflare Origin certificate…")
+		certPEM, keyPEM, err := c.IssueOriginCert(ctx, domain)
+		if err != nil {
+			return err
+		}
+		if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
+			return fmt.Errorf("Cloudflare returned a mismatched cert/key: %w", err)
+		}
+		cdn := cfCertPaths()
+		if err := writeAtomic(cdn.KeyFile, keyPEM, 0o600); err != nil {
+			return err
+		}
+		if err := writeAtomic(cdn.CertFile, certPEM, 0o644); err != nil {
+			return err
+		}
+		emit(okStyle.Render("✓") + " Origin certificate installed")
+	}
+	if !wantDNS {
+		return nil
+	}
+	ip := ""
+	if st, err := state.Load(state.Path()); err == nil {
+		ip = st.IP
+	}
+	if ip == "" {
+		ip = system.New().PublicIP(ctx)
+	}
+	if ip == "" {
+		emit(dimStyle.Render("• ") + "could not detect server IP; skipping DNS record")
+		return nil
+	}
+	if err := c.EnsureARecord(ctx, domain, ip, true); err != nil {
+		emit(warnStyle.Render("! ") + "DNS record: " + err.Error())
+		return nil
+	}
+	emit(okStyle.Render("✓") + " DNS A " + domain + " → " + ip + " (proxied)")
+	return nil
+}
+
+// cfCertPaths returns the CDN cert/key paths from config (or defaults).
+func cfCertPaths() config.CDN {
+	if cfg, err := config.LoadOrDefault(config.Path()); err == nil && cfg.Cores.Xray.CDN != nil {
+		return *cfg.Cores.Xray.CDN
+	}
+	return config.CDN{CertFile: "/etc/ngray/cf-origin.crt", KeyFile: "/etc/ngray/cf-origin.key"}
+}
+
+// certOK reports whether the currently configured origin cert+key both exist.
+func certOK() bool {
+	cdn := cfCertPaths()
+	return cdn.CertFile != "" && cdn.KeyFile != "" &&
+		fileExistsLoose(cdn.CertFile) && fileExistsLoose(cdn.KeyFile)
+}
+
+// normalizeTarget accepts bare hosts (no scheme/port): "127.0.0.1" becomes
+// http://127.0.0.1:80. nginx reverse-proxies ONE upstream listener; "proxy on
+// all ports" is not a thing on a single SNI listener — add service-specific
+// targets instead. Returns "" for an empty target.
+func normalizeTarget(t string) string {
+	if t == "" {
+		return ""
+	}
+	switch {
+	case strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://"):
+		return t
+	default:
+		return "http://" + t + ":80"
+	}
+}
+
 // issues an Origin cert, upserts the DNS record, writes config.yml and then
 // runs the normal server setup.
 func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
@@ -314,69 +421,13 @@ func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
 		cfg.Cores.Xray.CDN = cdn
 	}
 
-	if d.cfToken != "" {
-		if os.Geteuid() != 0 {
-			emit(badge.Render("sandbox") + " CF token needs root to cache in /etc/ngray/cf_token")
-		} else if err := writeAtomic("/etc/ngray/cf_token", []byte(d.cfToken), 0o600); err != nil {
-			emit(dimStyle.Render("• ") + "warning: could not cache CF token: " + err.Error())
-		} else {
-			emit(okStyle.Render("✓") + " cached CF token in /etc/ngray/cf_token")
-		}
-	}
-	token := d.cfToken
-	if token == "" {
-		token = cf.TokenFromEnvOrFile()
-	}
-
-	if token != "" {
-		c := cf.New(token)
-		emit(dimStyle.Render("• ") + "verifying Cloudflare token…")
-		if err := c.VerifyToken(ctx); err != nil {
-			return fmt.Errorf("Cloudflare token rejected: %w", err)
-		}
-		emit(okStyle.Render("✓") + " token valid")
-		emit(dimStyle.Render("• ") + "requesting Cloudflare Origin certificate…")
-		certPEM, keyPEM, err := c.IssueOriginCert(ctx, domain)
-		if err != nil {
-			return err
-		}
-		if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
-			return fmt.Errorf("Cloudflare returned a mismatched cert/key: %w", err)
-		}
-		if err := writeAtomic(cdn.KeyFile, keyPEM, 0o600); err != nil {
-			return err
-		}
-		if err := writeAtomic(cdn.CertFile, certPEM, 0o644); err != nil {
-			return err
-		}
-		emit(okStyle.Render("✓") + " Origin certificate installed")
-
-		if d.dns {
-			ip := ""
-			if st, err := state.Load(state.Path()); err == nil {
-				ip = st.IP
-			}
-			if ip == "" {
-				ip = system.New().PublicIP(ctx)
-			}
-			if ip == "" {
-				emit(dimStyle.Render("• ") + "could not detect server IP; skipping DNS record")
-			} else if err := c.EnsureARecord(ctx, domain, ip, true); err != nil {
-				emit(warnStyle.Render("! ") + "DNS record: " + err.Error())
-			} else {
-				emit(okStyle.Render("✓") + " DNS A " + domain + " → " + ip + " (proxied)")
-			}
-		}
-	} else {
-		emit(warnStyle.Render("! ") + "no Cloudflare token — skipping cert/DNS (use an existing cert or set the token)")
+	if err := cfEnsure(ctx, emit, domain, d.dns, d.cfToken); err != nil {
+		return err
 	}
 
 	cdn.Enabled = true
 	cdn.Domain = domain
-	if target := strings.TrimSpace(d.target); target != "" {
-		if !(strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://")) {
-			return fmt.Errorf("target must start with http:// or https://")
-		}
+	if target := normalizeTarget(strings.TrimSpace(d.target)); target != "" {
 		var kept []config.ProxyRoute
 		for _, r := range cfg.ProxyRoutes {
 			if r.Domain != domain {

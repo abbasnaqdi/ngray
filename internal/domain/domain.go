@@ -109,7 +109,7 @@ func classify(r Report, pointsHere bool) (Verdict, []string) {
 				"52x = origin unreachable from Cloudflare. Ensure the origin listens on a CF-proxied port (443/2053/2083/2087/2096/8443) and the firewall allows Cloudflare.",
 			)
 		}
-		adv = append(adv, "Until fixed: rely on the DIRECT-IP configs (REALITY / Hysteria2 / TUIC / ShadowTLS / Mieru / AmneziaWG).")
+		adv = append(adv, "Until fixed: rely on the DIRECT-IP configs (REALITY / Hysteria2 / TUIC / ShadowTLS / Mieru).")
 		return VerdictCFOriginBad, adv
 
 	case r.ViaCloudflare:

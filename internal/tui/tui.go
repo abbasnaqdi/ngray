@@ -44,26 +44,30 @@ type item struct {
 
 // Form field indices (navigation order in the setup wizard).
 const (
-	numWizardCores   = 4 // hysteria2, mieru, amneziawg, fptn
-	formFieldIP      = 0
-	formFieldPort    = 1
-	formFieldBBR     = 2
-	formCoreBase     = 3
-	formFieldProceed = formCoreBase + numWizardCores // 7
-	numFormFields    = formFieldProceed + 1          // 8
+	numWizardCores     = 2 // hysteria2, mieru
+	formFieldIP        = 0
+	formFieldPort      = 1
+	formFieldBBR       = 2
+	formFieldDomainOn  = 3 // serve through a Cloudflare-fronted domain too
+	formFieldDomainVal = 4 // editable domain, reachable only when domainOn
+	formCoreBase       = 5
+	formFieldProceed   = formCoreBase + numWizardCores // 7
+	numFormFields      = formFieldProceed + 1          // 8
 )
 
-var wizardCoreLabels = [numWizardCores]string{"hysteria2", "mieru", "amneziawg", "fptn"}
+var wizardCoreLabels = [numWizardCores]string{"hysteria2", "mieru"}
 
 // setupForm holds the editable parameters collected by the setup wizard.
 type setupForm struct {
-	ipVal   string
-	portVal string
-	bbr     bool
-	coreOn  [numWizardCores]bool
-	focused int
-	editing bool   // true while user is typing into a text field
-	editBuf string // in-progress text before commit
+	ipVal     string
+	portVal   string
+	bbr       bool
+	domainOn  bool // also front the subscription through the CDN domain
+	domainVal string
+	coreOn    [numWizardCores]bool
+	focused   int
+	editing   bool   // true while user is typing into a text field
+	editBuf   string // in-progress text before commit
 }
 
 // Domain field indices (navigation order in the domain/proxy form).

@@ -246,7 +246,7 @@ func Cleanup(ctx context.Context, o ManageOptions, opt CleanupOptions) error {
 	if opt.RemoveBinaries {
 		for _, p := range []string{
 			"/usr/local/bin/shoes", "/usr/local/bin/xray", "/usr/bin/sing-box",
-			"/usr/local/bin/hysteria", "/usr/local/bin/fptn-server", "/usr/local/bin/mita",
+			"/usr/local/bin/hysteria", "/usr/local/bin/mita",
 		} {
 			if sys.Exists(p) && sys.Remove(p) == nil {
 				o.log("removed %s", p)

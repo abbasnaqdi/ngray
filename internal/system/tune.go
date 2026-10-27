@@ -58,7 +58,7 @@ func (e *Env) EnableBBR(ctx context.Context) error {
 	return err
 }
 
-// EnableIPForward turns on IPv4 forwarding (needed by the fptn TUN core).
+// EnableIPForward turns on IPv4 forwarding (needed by TUN-style cores).
 func (e *Env) EnableIPForward(ctx context.Context) error {
 	if _, err := e.Run(ctx, "sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
 		return err

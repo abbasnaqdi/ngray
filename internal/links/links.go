@@ -39,7 +39,7 @@ type Endpoint struct {
 	CertPEM     string
 
 	// Raw is a fully pre-rendered sing-box outbound (minus "tag"), used by cores
-	// whose protocol has no compact share URI (mieru, amneziawg). When set,
+	// whose protocol has no compact share URI (mieru). When set,
 	// SingboxJSON emits it verbatim and URI() returns "" (no base64-bundle line).
 	Raw map[string]any
 }

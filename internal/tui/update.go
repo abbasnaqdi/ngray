@@ -24,17 +24,32 @@ func newSetupForm(cfg *config.Config) setupForm {
 	if ip == "" {
 		ip = "auto"
 	}
-	return setupForm{
+	f := setupForm{
 		ipVal:   ip,
 		portVal: strconv.Itoa(cfg.Nginx.Port),
 		bbr:     cfg.Server.EnableBBR,
 		coreOn: [numWizardCores]bool{
 			cfg.Cores.Hysteria2.Enabled,
 			cfg.Cores.Mieru.Enabled,
-			cfg.Cores.AmneziaWG.Enabled,
-			cfg.Cores.Fptn.Enabled,
 		},
 	}
+	// Domain prefill: pre-tick only when a domain is configured AND usable
+	// (cert/key already on disk), so setup doesn't stall without a token.
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Domain != "" {
+		f.domainVal = cdn.Domain
+		f.domainOn = cdn.Enabled && fileExistsLoose(cdn.CertFile) && fileExistsLoose(cdn.KeyFile)
+	}
+	return f
+}
+
+// fileExistsLoose is a tiny os.Stat probe so the TUI package does not need any
+// heavy machinery for the domain prefill decision.
+func fileExistsLoose(p string) bool {
+	if p == "" {
+		return false
+	}
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 func newDomainForm(cfg *config.Config) domainForm {
@@ -241,10 +256,17 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k", "shift+tab":
 		if f.focused > 0 {
 			f.focused--
+			// Skip the hidden domain-value row while fronting is off.
+			if f.focused == formFieldDomainVal && !f.domainOn {
+				f.focused--
+			}
 		}
 	case "down", "j", "tab":
 		if f.focused < numFormFields-1 {
 			f.focused++
+			if f.focused == formFieldDomainVal && !f.domainOn {
+				f.focused++
+			}
 		}
 	case "enter", " ":
 		switch {
@@ -257,6 +279,11 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case f.focused == formFieldBBR:
 			f.bbr = !f.bbr
+		case f.focused == formFieldDomainOn:
+			f.domainOn = !f.domainOn
+		case f.focused == formFieldDomainVal:
+			f.editing = true
+			f.editBuf = f.domainVal
 		case f.focused >= formCoreBase && f.focused < formFieldProceed:
 			f.coreOn[f.focused-formCoreBase] = !f.coreOn[f.focused-formCoreBase]
 		case f.focused == formFieldProceed:
@@ -278,6 +305,10 @@ func (m Model) updateFormEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case formFieldPort:
 			if f.editBuf != "" {
 				f.portVal = f.editBuf
+			}
+		case formFieldDomainVal:
+			if v := strings.TrimSpace(strings.ToLower(f.editBuf)); v != "" {
+				f.domainVal = v
 			}
 		}
 		f.editing = false
@@ -337,8 +368,23 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 	cfg.Server.EnableBBR = m.form.bbr
 	cfg.Cores.Hysteria2.Enabled = m.form.coreOn[0]
 	cfg.Cores.Mieru.Enabled = m.form.coreOn[1]
-	cfg.Cores.AmneziaWG.Enabled = m.form.coreOn[2]
-	cfg.Cores.Fptn.Enabled = m.form.coreOn[3]
+	// Domain fronting toggle: enable the CDN block (cert+DNS is ensured by
+	// the setup task itself when the CF token is cached).
+	if m.form.domainOn {
+		dom := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(m.form.domainVal)), ".")
+		if dot := strings.Count(dom, "."); dom != "" && dot >= 1 {
+			cdn := cfg.Cores.Xray.CDN
+			if cdn == nil {
+				cdn = &config.CDN{CertFile: "/etc/ngray/cf-origin.crt", KeyFile: "/etc/ngray/cf-origin.key", WS: true}
+				cfg.Cores.Xray.CDN = cdn
+			}
+			cdn.Enabled = true
+			cdn.Domain = dom
+		}
+	} else if cfg.Cores.Xray.CDN != nil {
+		// unchecked → keep the domain but suspend fronting
+		cfg.Cores.Xray.CDN.Enabled = false
+	}
 
 	_ = config.Save(config.Path(), cfg) // best-effort; setup re-reads the file
 	return m.start(m.pendingItem)

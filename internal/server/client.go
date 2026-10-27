@@ -24,9 +24,7 @@ var protoKey = map[string]string{
 
 // noteKey maps a Note key to the emit keyword that enables it.
 var noteKey = map[string]string{
-	"fptn-token":              "fptn",
-	"mieru-client-config":     "mieru",
-	"amneziawg-client-config": "amneziawg",
+	"mieru-client-config": "mieru",
 }
 
 type emitSet map[string]bool
@@ -67,9 +65,9 @@ func RenderClient(w io.Writer, st *state.State, cfg *config.Config) error {
 		fmt.Fprintf(w, "\n%-36s %s\n", e.Tag, uri)
 	}
 
-	// Notes first (fptn token, mieru config, AmneziaWG conf): these are short,
+	// Notes first (extra Notes cores payload): these are short,
 	// importable configs and must not be buried under the large sing-box JSON
-	// dump that follows — otherwise mieru/AmneziaWG look "missing" in the list.
+	// dump that follows — otherwise mieru/extra Notes cores look "missing" in the list.
 	for k, v := range d.Notes {
 		nk, ok := noteKey[k]
 		if ok && !emit.allows(nk) {
@@ -116,11 +114,11 @@ func writeSubscribe(w io.Writer, d *state.Deploy) {
 		fmt.Fprintf(w, "\n  Primary — via Cloudflare (no port, trusted cert, IP hidden):\n")
 		if d.SubDomainSingboxURL != "" {
 			fmt.Fprintf(w, "    sbJSON  %s\n", d.SubDomainSingboxURL)
-			fmt.Fprintf(w, "            → NekoBox/husi · sing-box · Hiddify  (full set, incl. mieru + AmneziaWG)\n")
+			fmt.Fprintf(w, "            → NekoBox/husi · sing-box · Hiddify  (full set, incl. mieru)\n")
 		}
 		if d.SubDomainURL != "" {
 			fmt.Fprintf(w, "    base64  %s\n", d.SubDomainURL)
-			fmt.Fprintf(w, "            → v2rayNG · v2rayN · Streisand · Shadowrocket  (URI list; no mieru/AmneziaWG)\n")
+			fmt.Fprintf(w, "            → v2rayNG · v2rayN · Streisand · Shadowrocket  (URI list; mieru only in the JSON)\n")
 		}
 	}
 

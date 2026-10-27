@@ -14,7 +14,7 @@ internal/
   firewall           lockout-safe default-drop via a dedicated NGRAY chain
   sni                REALITY-fitness tester (TLS1.3 + h2 + X25519 + latency)
   domain             Cloudflare/origin health check (DNS, CF edge status, origin TLS)
-  cores              Core interface + xray/shoes/sing-box/hysteria/fptn/mieru/amneziawg
+  cores              Core interface + xray/shoes/sing-box/hysteria/mieru
   nginx              ssl_preread SNI mux + subscription server (IP + CF-fronted on domain)
   sub                subscription on-disk layout + URL
   links              Endpoint -> vless(reality/ws)/anytls/hysteria2/tuic/shadowtls URIs,
@@ -52,7 +52,7 @@ on 443 — so the subscribe URL is port-free behind Cloudflare with the origin I
 ## Subscription
 
 `/s/<token>` serves the base64 URI list, `/sb/<token>` the sing-box JSON outbound
-list (the only place **mieru** and **AmneziaWG** appear, as they have no URI). The
+list (the only place **mieru** appears, as it has no URI). The
 sing-box bundle adds three failover groups — `auto` (urltest over everything),
 `blackout` (urltest over the TCP/443 REALITY + ShadowTLS subset that survives a
 national SNI allowlist), and `select` (manual pin, default `auto`).

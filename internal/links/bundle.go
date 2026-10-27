@@ -29,7 +29,7 @@ func Subscription(eps []Endpoint) string {
 //   - "blackout" (urltest): the subset of "auto" that can survive a national
 //     protocol+SNI allowlist (Iran, Jan 2026) — TCP/443 REALITY and ShadowTLS
 //     shapes that send a borrowed, allowlistable SNI. Excludes every UDP core
-//     (hysteria2/tuic/amneziawg), the mieru side-port, and CF-WS (custom-domain
+//     (hysteria2/tuic), the mieru side-port, and CF-WS (custom-domain
 //     SNI). Added only when such an endpoint exists. The client default stays
 //     "auto"; when everything else goes dark, switching "select" to "blackout"
 //     health-checks only the shapes that can still cross.
@@ -85,7 +85,7 @@ func SingboxJSON(eps []Endpoint) ([]byte, error) {
 // blackoutSafe reports whether an endpoint can survive a national protocol+SNI
 // allowlist (only HTTPS/443 to allowlisted domains crosses). True for the
 // TCP/443 REALITY and ShadowTLS shapes, which present a borrowed real SNI on the
-// one allowlisted port. False for UDP cores (hysteria2, tuic, amneziawg — all
+// one allowlisted port. False for UDP cores (hysteria2, tuic, wireguard — all
 // dropped), mieru (its own non-443 port is dropped), and CF-WS/xhttp-tls (they
 // send a custom domain as SNI, which is not on the allowlist and gets RST).
 func blackoutSafe(proto string) bool {
@@ -99,7 +99,7 @@ func blackoutSafe(proto string) bool {
 // singboxOutbounds returns one or two outbounds for the endpoint.
 // ShadowTLS requires a shadowtls outer + shadowsocks inner; all others return one.
 func singboxOutbounds(e Endpoint) []map[string]any {
-	// Pre-rendered outbound (mieru, amneziawg): emit verbatim with the tag set.
+	// Pre-rendered outbound (mieru): emit verbatim with the tag set.
 	if e.Raw != nil {
 		o := make(map[string]any, len(e.Raw)+1)
 		maps.Copy(o, e.Raw)

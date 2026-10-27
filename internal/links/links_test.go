@@ -80,18 +80,18 @@ func TestRawOutbounds(t *testing.T) {
 	mieru := Endpoint{Tag: "mieru-user", Proto: "mieru", Raw: map[string]any{
 		"type": "mieru", "server": "1.2.3.4", "server_port": 14000, "username": "user", "password": "pw",
 	}}
-	awg := Endpoint{Tag: "amneziawg", Proto: "amneziawg", Raw: map[string]any{
+	rawEP := Endpoint{Tag: "wg", Proto: "wireguard", Raw: map[string]any{
 		"type": "wireguard", "server": "1.2.3.4", "server_port": 51820, "jc": 5,
 	}}
 	if mieru.URI() != "" {
 		t.Errorf("Raw endpoint must have no URI, got %q", mieru.URI())
 	}
-	b, err := SingboxJSON([]Endpoint{mieru, awg})
+	b, err := SingboxJSON([]Endpoint{mieru, rawEP})
 	if err != nil {
 		t.Fatalf("SingboxJSON: %v", err)
 	}
 	s := string(b)
-	for _, want := range []string{`"type": "mieru"`, `"tag": "mieru-user"`, `"type": "wireguard"`, `"tag": "amneziawg"`, `"username": "user"`} {
+	for _, want := range []string{`"type": "mieru"`, `"tag": "mieru-user"`, `"type": "wireguard"`, `"tag": "wg"`, `"username": "user"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("singbox bundle missing %q", want)
 		}

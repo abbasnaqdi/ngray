@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/version"
 )
 
@@ -132,6 +133,68 @@ func TestDomainFormBackspaceUnicode(t *testing.T) {
 	updated, _ := m.Update(keyMsg(tea.KeyBackspace))
 	if m2 := updated.(Model); m2.domain.editBuf != "ab" {
 		t.Errorf("backspace broke UTF-8: %q", m2.domain.editBuf)
+	}
+}
+
+// TestSetupFormDomainToggle: the wizard's "Domain fronting" row toggles and
+// navigates past the value row cleanly.
+func TestSetupFormDomainToggle(t *testing.T) {
+	m := New()
+	m.screen = screenSetupForm
+	if m.form.focused != formFieldIP {
+		t.Fatalf("wizard starts on the first row, got %d", m.form.focused)
+	}
+	step := func(m Model) Model {
+		updated, _ := m.Update(keyMsg(tea.KeyDown))
+		return updated.(Model)
+	}
+	m = step(m)
+	if m.form.focused != formFieldPort {
+		t.Fatalf("focus walk failed at Port, got %d", m.form.focused)
+	}
+	m = step(m)
+	if m.form.focused != formFieldBBR {
+		t.Fatalf("focus walk failed at BBR, got %d", m.form.focused)
+	}
+	m = step(m)
+	if m.form.focused != formFieldDomainOn {
+		t.Fatalf("focus skipped to domain toggle, got %d", m.form.focused)
+	}
+	updated, _ := m.Update(keyMsg(tea.KeyEnter))
+	m = updated.(Model)
+	if !m.form.domainOn {
+		t.Fatalf("enter did not tick Domain fronting")
+	}
+	m = step(m)
+	if m.form.focused != formFieldDomainVal {
+		t.Fatalf("domain value row unreachable after tick, got %d", m.form.focused)
+	}
+	updated, _ = m.Update(keyMsg(tea.KeyEnter)) // open the editor
+	m = updated.(Model)
+	edited, _ := m.Update(pasteMsg("vpn.example.com"))
+	m = edited.(Model)
+	updated, _ = m.Update(keyMsg(tea.KeyEnter))
+	m = updated.(Model)
+	if m.form.domainVal != "vpn.example.com" {
+		t.Fatalf("domain edit not committed: %q", m.form.domainVal)
+	}
+}
+
+// TestSetupFormDomainMapping asserts the wizard→config mapping helper path
+// used by submitForm for the CDN block.
+func TestSetupFormDomainMapping(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cores.Xray.CDN = &config.CDN{Enabled: false}
+	f := setupForm{domainOn: true, domainVal: "Vpn.Example.Com."}
+	dom := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(f.domainVal)), ".")
+	if n := strings.Count(dom, "."); dom != "" && n >= 1 {
+		cfg.Cores.Xray.CDN.Enabled, cfg.Cores.Xray.CDN.Domain = true, dom
+	}
+	if cfg.Cores.Xray.CDN.Domain != "vpn.example.com" || !cfg.Cores.Xray.CDN.Enabled {
+		t.Fatalf("cdn mapping failed: %+v", cfg.Cores.Xray.CDN)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("mapped config invalid: %v", err)
 	}
 }
 

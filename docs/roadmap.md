@@ -11,9 +11,8 @@ interface:
       inbound; `cores.singbox.shadowtls`. Own public TCP port.
 - [x] **mieru / mita** — independent core, ports 14xxx. Client config JSON via
       the sing-box bundle + Notes.
-- [x] **AmneziaWG** — incl. AWG **2.0 params** (`S3`/`S4` padding, `H1`–`H4`
-      as disjoint ranges) behind `cores.amneziawg.v2: true`. Default stays 1.x
-      until 2.0-capable tools/clients are universal.
+- [x] amneziawg + fptn were **removed** in 0.8.7 — UDP-heavy, IR-hostile;
+  deploy them standalone if a Russia scenario needs them.
 
 ## Next candidates (opt-in, verify upstream before installing)
 

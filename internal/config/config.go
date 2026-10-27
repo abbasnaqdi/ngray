@@ -32,13 +32,11 @@ type Nginx struct {
 }
 
 type Cores struct {
-	Xray      Xray          `yaml:"xray"`
-	Shoes     Shoes         `yaml:"shoes"`
-	Singbox   Singbox       `yaml:"singbox"`
-	Hysteria2 Hysteria2     `yaml:"hysteria2"`
-	Fptn      Fptn          `yaml:"fptn"`
-	Mieru     MieruCore     `yaml:"mieru"`
-	AmneziaWG AmneziaWGCore `yaml:"amneziawg"`
+	Xray      Xray      `yaml:"xray"`
+	Shoes     Shoes     `yaml:"shoes"`
+	Singbox   Singbox   `yaml:"singbox"`
+	Hysteria2 Hysteria2 `yaml:"hysteria2"`
+	Mieru     MieruCore `yaml:"mieru"`
 }
 
 // MieruCore is an independent TCP/UDP multiplexed tunnel with no recognisable
@@ -47,17 +45,6 @@ type MieruCore struct {
 	Enabled bool   `yaml:"enabled"`
 	Port    int    `yaml:"port"` // public TCP
 	User    string `yaml:"user"`
-}
-
-// AmneziaWGCore is obfuscated WireGuard (Russia-grade). Adds random junk
-// headers and salt to every UDP packet so WG traffic is unidentifiable.
-type AmneziaWGCore struct {
-	Enabled bool `yaml:"enabled"`
-	Port    int  `yaml:"port"` // public UDP
-	// V2 opts into AWG 2.0 obfuscation: cookie/transport padding (S3/S4) and
-	// magic-header ranges (H1–H4 as lo-hi). Needs a 2.0-capable amneziawg
-	// kernel module + client; default stays 1.x for compatibility.
-	V2 bool `yaml:"v2,omitempty"`
 }
 
 // Reality is one REALITY config bound to a single whitelisted SNI.
@@ -155,13 +142,6 @@ type Hysteria2 struct {
 	Obfs     string `yaml:"obfs"`
 }
 
-type Fptn struct {
-	Enabled bool   `yaml:"enabled"`
-	Port    int    `yaml:"port"`
-	SNI     string `yaml:"sni"`
-	User    string `yaml:"user"`
-}
-
 type Subscription struct {
 	Enabled   bool   `yaml:"enabled"`
 	FrontSNI  string `yaml:"front_sni,omitempty"`
@@ -219,15 +199,10 @@ func Default() *Config {
 				ShadowTLS: &SingboxShadowTLS{Enabled: true, Port: 2443, SNI: "www.rust-lang.org"},
 			},
 			Hysteria2: Hysteria2{Enabled: true, Port: 443, AltPorts: []int{8443, 2087, 2096, 2052, 2082}, SNI: "www.rust-lang.org", Obfs: "salamander"},
-			// Fptn and AmneziaWG are UDP-heavy and Iran-drop UDP wholesale:
-			// useful for other regions (Russia for AWG, blackout-ICMP for
-			// fptn) but noise on an Iran VPS. Opt-in, not defaults.
-			Fptn:      Fptn{Enabled: false, Port: 2096, SNI: "www.rust-lang.org", User: "ngray"},
 			Mieru:     MieruCore{Enabled: true, Port: 14000, User: "ngray"},
-			AmneziaWG: AmneziaWGCore{Enabled: false, Port: 51820},
 		},
 		Subscription: Subscription{Enabled: true, FrontSNI: "www.kernel.org", HTTPSPort: 2053},
-		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "tuic", "shadowtls", "singbox_json", "subscription", "mieru", "amneziawg", "fptn"}},
+		Client:       Client{Emit: []string{"vless", "anytls", "hysteria2", "tuic", "shadowtls", "singbox_json", "subscription", "mieru"}},
 	}
 }
 

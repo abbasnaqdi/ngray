@@ -106,26 +106,12 @@ cores:
     sni: www.rust-lang.org
     obfs: salamander
 
-  # ── independent cores (disabled by default) ───────────────────────
-  fptn:
-    enabled: false
-    port: 2096
-    sni: www.rust-lang.org
-    user: ngray
 
   mieru:
     enabled: true         # no fingerprint — effective against ML-based DPI (China/Russia)
     port: 14000
     user: ngray
 
-  amneziawg:
-    enabled: false        # obfuscated WireGuard — junk headers, Russia-grade.
-                          # Iran drops UDP wholesale: keep off for IR servers,
-                          # enable for Russia. v2 params below also opt-in.
-    port: 51820
-    # v2: true            # AWG 2.0: cookie/transport padding (S3/S4) + H1–H4 as
-                          # disjoint ranges. Needs 2.0-capable awg tools/kernel
-                          # AND client (AmneziaVPN/NekoBox forks). Default 1.x.
 
 subscription:
   enabled: true
@@ -157,7 +143,5 @@ client:
   #   singbox_json — full sing-box client JSON bundle
   #   subscription — subscribe URL (http://IP/s/TOKEN)
   #   qr           — QR code for each link and the subscribe URL
-  #   fptn         — fptn connection token (if fptn.enabled: true)
   #   mieru        — mieru client JSON config (if mieru.enabled: true)
-  #   amneziawg    — AmneziaWG .conf file (if amneziawg.enabled: true)
-  emit: [vless, anytls, hysteria2, tuic, shadowtls, singbox_json, subscription, mieru, amneziawg, fptn]
+  emit: [vless, anytls, hysteria2, tuic, shadowtls, singbox_json, subscription, mieru]

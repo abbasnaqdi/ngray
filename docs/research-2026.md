@@ -78,7 +78,7 @@ SNI allowlist.
 ## Censor behavior updates (2026)
 - **Iran:** Jan 2026 allowlist shutdown (weeks; partial restore May 2026). National gateway protocol+SNI allowlist. UDP dropped. Volume triggers re-route. Blackout = allowlisted SNIs on 443 only.
 - **China:** GFW Q2-2026 ML upgrade targeting junk-byte patterns; TLS-in-TLS detection; Vision required; QUIC/ECH liabilities; rotate IP after volume.
-- **Russia:** TSPU; IP/AS reputation dominates; mobile whitelist mode cannot be served from foreign VPS; REALITY ~99.5% but ML pressure; AmneziaWG strong.
+- **Russia:** TSPU; IP/AS reputation dominates; mobile whitelist mode cannot be served from foreign VPS; REALITY ~99.5% but ML pressure; AmneziaWG remains strong (not shipped by ngray).
 
 ## Deprecated / ineffective (do not add)
 - TLS-hello fragmentation (`tlshello`) — DPI reassembles TCP; dead in Iran since ~mid-2026.

@@ -17,9 +17,9 @@ import (
 // hierarchy instead of a rainbow of hues.
 var (
 	colorAccent = lipgloss.Color("209") // warm orange — focus / primary
-	colorText   = lipgloss.Color("252") // soft white body
+	colorText   = lipgloss.Color("254") // bright body text (readable on any bg)
 	colorMuted  = lipgloss.Color("245") // inactive labels / status
-	colorDim    = lipgloss.Color("238") // rules, hints, meta
+	colorDim    = lipgloss.Color("239") // rules, hints, meta
 	colorOK     = lipgloss.Color("114")
 	colorErr    = lipgloss.Color("203")
 	colorWarn   = lipgloss.Color("214")
@@ -140,7 +140,29 @@ func (m Model) viewSetupForm() string {
 	b.WriteString("\n\n")
 
 	b.WriteString(formToggleRow(f.focused == formFieldBBR, "BBR congestion", f.bbr))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	domToggle := formToggleRow(f.focused == formFieldDomainOn, "Domain fronting", f.domainOn)
+	b.WriteString(domToggle + "\n")
+	// Value row (edited like the port field), visible once the toggle is on.
+	dval := f.domainVal
+	if dval == "" {
+		dval = "example.com"
+	}
+	drow := func() string {
+		lbl := fmt.Sprintf("  %-22s", "Domain")
+		if f.focused == formFieldDomainOn && f.editing {
+			return "   " + accentStyle.Render(lbl) + accentStyle.Render(f.editBuf+"█")
+		}
+		if f.focused == formFieldDomainOn {
+			return "   " + accentStyle.Render(lbl) + textStyle.Render(dval) + dimStyle.Render("  (enter to edit — needs the CF token cached)")
+		}
+		return "  " + mutedStyle.Render(lbl) + dimStyle.Render(dval)
+	}
+	if f.domainOn {
+		b.WriteString(drow() + "\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString(dimStyle.Render("  Cores:") + "\n")
 	for i, label := range wizardCoreLabels {
@@ -308,7 +330,7 @@ func (m Model) viewTask() string {
 	}
 	// Surface the failure as a readable box instead of a single overflow line.
 	if m.taskErr != nil {
-		reason := wrapWords(m.taskErr.Error(), 60)
+		reason := wrapWords(m.taskErr.Error(), maxInt(m.width-12, 72))
 		box := lipgloss.NewStyle().Padding(0, 1).Render("  " + reason)
 		return head + "\n" + body + "\n" + errStyle.Render(box) + "\n" + foot
 	}

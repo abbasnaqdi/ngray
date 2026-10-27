@@ -52,7 +52,7 @@ and the TUI re-executes into the new binary (no manual restart). Opt out with
 On a fresh Ubuntu VPS, `sudo ./ngray` runs an interactive console. Choose **Server setup**:
 
 1. Sweeps a tiered pool of ~1378 candidate SNIs for REALITY fitness — a fast two-phase scan (a cheap probe across every host, then full latency measurement only on the ones that pass) — and assigns the best from a proven, operator-whitelist-friendly **preferred** tier (now including AI/dev-infra/crypto/education domains and a **blackout-survivor** set Iran allowlists even during a national shutdown) before ever touching the **extended** fallback tier.
-2. Installs every enabled core (`xray`, `shoes`, `sing-box`, `hysteria2`, `fptn`, and optionally `mieru`, `amneziawg`) — with your permission, one by one.
+2. Installs every enabled core (`xray`, `shoes`, `sing-box`, `hysteria2` and `mieru`) — with your permission, one by one.
 3. Configures nginx on TCP 443 as an SNI-multiplexer routing different client SNIs to different protocol backends — all invisible on the public interface.
 4. Generates keys, credentials and short-IDs that persist across re-runs.
 5. Applies a lockout-safe firewall (SSH always survives).
@@ -75,9 +75,7 @@ No single VPS IP reliably crosses both MCI and Irancell at the same time. MCI us
 | QUIC standard stack | TUIC v5 | shoes Rust, sing-box | h3 ALPN; different from hy2 |
 | TLS mimic | ShadowTLS v3 | sing-box only | Proxies real TLS handshake to live site |
 | CDN-fronted | VLESS + WS + TLS | xray (via Cloudflare) | IP-independent: survives a direct-IP blacklist |
-| Full-tunnel VPN | fptn | — | Token-based fallback |
 | ML-resistant tunnel | mieru | — | No protocol fingerprint (China/Russia) |
-| Obfuscated WireGuard | AmneziaWG | — | Junk headers; Russia-grade |
 
 **SNI pairing strategy**: `www.rust-lang.org` and `rust-lang.org` are different nginx routing keys — both pass REALITY fitness. This doubles coverage: the www variant routes to xray (Vision), the non-www routes to shoes (AnyTLS, Rust fingerprint).
 
@@ -173,7 +171,7 @@ Cloudflare Origin CA certificate valid for the domain (+ `www.`).
 | `server setup [--sandbox]` | auto-SNI → install cores → nginx → subscribe link → firewall |
 | `server status` | installed version + service state for every core |
 | `doctor` | diagnose nginx, core configs, BBR, cert expiry, foreign panels |
-| `client links` | print all share links + mieru/AmneziaWG/fptn configs + sing-box JSON |
+| `client links` | print all share links + mieru config + sing-box JSON |
 | `client singbox` | print the sing-box client JSON bundle (with auto-failover groups) |
 | `sni test [host…]` | REALITY fitness (TLS1.3 + h2 + X25519) + latency, two-phase sweep (scales to 1000+) |
 | `sni discover` | scan /24 near your server to find nearby REALITY-fit IPs |
@@ -207,7 +205,6 @@ Generated links import into:
 | **nekoray / nekobox** | Windows, Linux, Android | Full sing-box format |
 | **husi** | Android | Native sing-box; best AnyTLS/ShadowTLS support |
 | **exclave** | iOS | Native sing-box |
-| **AmneziaVPN** | All | For AmneziaWG configs (import .conf) |
 | **mieru / nekobox** | All | For mieru configs (import JSON) |
 
 `client links` prints the subscribe URLs in two tiers — pick by format and by whether you've set up a Cloudflare domain (optional, see below):
@@ -216,8 +213,8 @@ Generated links import into:
 
 | URL | Format | Best for |
 |---|---|---|
-| `https://www.DOMAIN/sb/TOKEN` | **sing-box JSON** (auto + select groups) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru + AmneziaWG** |
-| `https://www.DOMAIN/s/TOKEN` | base64 URI list | v2rayNG · v2rayN · Streisand · Shadowrocket — URI configs (no mieru/AmneziaWG) |
+| `https://www.DOMAIN/sb/TOKEN` | **sing-box JSON** (auto + select groups) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru** |
+| `https://www.DOMAIN/s/TOKEN` | base64 URI list | v2rayNG · v2rayN · Streisand · Shadowrocket — URI configs (mieru only in JSON) |
 
 **Fallback — direct IP** (always produced; use when the domain is blocked): self-signed TLS, so enable skip-cert-verify or pin the printed `pinSHA256`.
 
@@ -227,7 +224,7 @@ Generated links import into:
 | `https://SERVER-IP:2053/s/TOKEN` | base64 URI list |
 | `http://SERVER-IP/s/TOKEN` | base64 over plain HTTP (no cert errors anywhere) |
 
-Add one URL in any app; all configs appear and auto-update, and the sing-box `auto` group health-checks every endpoint so dead ones are skipped automatically. **mieru and AmneziaWG have no share-link URI**, so they ride only the **sing-box JSON** bundle (`/sb/`) — import that one in NekoBox/husi to get them. The raw mieru JSON / AmneziaWG `.conf` are also printed by `client links` for the standalone mieru / AmneziaVPN apps.
+Add one URL in any app; all configs appear and auto-update, and the sing-box `auto` group health-checks every endpoint so dead ones are skipped automatically. **mieru has no share-link URI**, so it rides only the **sing-box JSON** bundle (`/sb/`) — import that one in NekoBox/husi to get it. The raw mieru JSON is also printed by `client links` for the standalone mieru app.
 
 ---
 
@@ -240,7 +237,7 @@ Key facts:
 - `www.X` and `X` count as separate SNIs — use both for double coverage.
 - Auto-SNI consumes essentially the whole REALITY-fit pool (hundreds of configs), quality-first: the proven tier and low-latency HTTP-200 destinations lead, slow hosts are dropped. `subscription.front_sni` is given its own dedicated SNI so it never collides with a route.
 - `cores.xray.cdn` enables optional Cloudflare fronting (domain WS proxy + CF-served subscription) — see [Cloudflare fronting](#cloudflare-fronting-optional-ip-independent-fallback).
-- Cores without nginx routing (hysteria2, TUIC, ShadowTLS, fptn, mieru, AmneziaWG) have their own public ports.
+- Cores without nginx routing (hysteria2, TUIC, ShadowTLS, mieru) have their own public ports.
 - `proxy-state.json` (0600) persists all generated keys, credentials and the subscribe token — re-running setup is idempotent.
 
 ### SNI pool tiers
@@ -317,7 +314,7 @@ Rightel each allow a different set.
   server's `:443` with each candidate SNI from your phone/PC.
 - Import the **sbJSON** subscribe URL and use its `auto` group — it skips dead
   endpoints for you instead of you trying each by hand.
-- UDP cores (Hysteria2, TUIC, AmneziaWG) also depend on UDP/QUIC being allowed;
+- UDP cores (Hysteria2, TUIC) also depend on UDP/QUIC being allowed;
   Irancell throttles UDP/443 heavily — the Hysteria2 alt-ports help.
 
 ---

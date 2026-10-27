@@ -30,14 +30,14 @@ ngray update        # upgrade every installed core
 - **Cloudflare WS/XHTTP with a custom-domain SNI and no ECH** — the SNI allowlist extracts it; do not count it as a blackout survivor.
 - **uTLS fingerprint spoofing** — sing-box docs call it unsuitable for censorship circumvention; prefer real stacks (Naive, Chrome QUIC parrot).
 - **Plain QUIC / Hysteria2 / TUIC without obfs** — filtered by SNI in RU (≤2023) and CN (since 2024). Salamander/Gecko mandatory.
-- **AmneziaWG 1.x fixed `Jc/S1/S2/H1–H4`** — weak against 2026 statistical analysis; upgrade to 2.0 params.
+- **AmneziaWG 1.x fixed `Jc/S1/S2/H1–H4`** — weak against 2026 statistical analysis; upgrade to 2.0 params. ngray no longer ships it: UDP-heavy cores are IR-hostile (see "Iran" row).
 - **TUIC / Hysteria2 / AWG as an Iran blackout fallback** — UDP is dropped wholesale; keep them out of the blackout group.
 
 ## Worth adding (opt-in, not defaults)
 
 1. **Xray FinalMask** (`XTLS/Xray-core`, 2026): TCP `sudoku`, `fragment`, `header-custom`; UDP `salamander`, `gecko`, `xdns`, `xicmp`. Only path that covers an ICMP/DNS-only blackout without a new binary. New and client support is sparse — ship disabled.
 2. **Hysteria2 Gecko obfs** — `cores.hysteria2.obfs: gecko` (ngray validates obfs against `salamander|gecko`; `""` disables it). Clients must support it too.
-3. **AmneziaWG 2.0** — `S3/S4`, `H1–H4` *ranges*, `I1–I5` CPS mimic packets. **Shipped opt-in:** `cores.amneziawg.v2: true` in config.yml does S3/S4 + disjoint H ranges (server, client .conf and the sing-box bundle all regenerate consistently; I1–I5 stay manual). Requires 2.0-capable awg-tools/kernel and clients; 1.x remains the default.
+3. **AmneziaWG 2.0** — `S3/S4`, ranged `H1–H4`, `I1–I5` CPS mimic packets. **Removed from ngray** (UDP dropped wholesale in IR; Russia-focused). If you run ngray in Russia, deploy AmneziaWG standalone alongside it.
 4. **NaiveProxy inbound via sing-box** — real Chromium TLS/HTTP2 stack; needs a real domain+cert. Useful for RU/CN, not an Iran allowlist bypass.
 5. **ECH on the Cloudflare path** — changes the visible SNI to `cloudflare-ech.com`; one Iran report shows it working where plain CF-WSS fails, but Russia blocks that outer name.
 

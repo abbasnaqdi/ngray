@@ -125,7 +125,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		for k, v := range res.Notes {
 			notes[k] = v
 		}
-		// mieru/AmneziaWG/fptn deliver an importable config via Notes rather than
+		// mieru delivers an importable config via Notes rather than
 		// share-link endpoints; count those so the log doesn't read "0".
 		if n := len(res.Endpoints); n > 0 {
 			o.log("configured %s (%d endpoint(s))", core.Name(), n)
@@ -423,12 +423,6 @@ func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st 
 	}
 	if cfg.Cores.Mieru.Enabled {
 		r.TCP = append(r.TCP, cfg.Cores.Mieru.Port)
-	}
-	if cfg.Cores.AmneziaWG.Enabled {
-		r.UDP = append(r.UDP, cfg.Cores.AmneziaWG.Port)
-	}
-	if cfg.Cores.Fptn.Enabled {
-		r.TCP = append(r.TCP, cfg.Cores.Fptn.Port)
 	}
 	if len(r.TCP) == 0 && len(r.UDP) == 0 {
 		o.log("applying firewall: default-drop inbound, ssh only")
