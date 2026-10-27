@@ -1,44 +1,29 @@
-# Roadmap — additional cores
+# Roadmap
 
-These cores are specced precisely so they can be added behind the existing `cores.Core`
-interface without rework. Each follows the same pattern: `Install` (download + systemd unit),
-`Build` (write config via `p.Sys.WriteFile`, allocate ports, return endpoints), `Enabled`,
-`Installed`. Independent (UDP/TUN) cores get a public port + firewall hole like hysteria2.
+## Shipped
 
-## TUIC v5 (independent QUIC core, served by sing-box)
-- Append a tuic inbound to the sing-box config; public UDP, self-signed cert (like hysteria2).
-- Inbound:
-  ```json
-  {"type":"tuic","listen":"::","listen_port":PORT,
-   "users":[{"uuid":UID,"password":PW}],"congestion_control":"bbr",
-   "tls":{"enabled":true,"server_name":SNI,"alpn":["h3"],
-          "certificate_path":CRT,"key_path":KEY}}
-  ```
-- Link: `tuic://UUID:PW@host:PORT?congestion_control=bbr&alpn=h3&sni=SNI&allow_insecure=1#tag`
-- Firewall: open the TUIC UDP port. Config: `cores.tuic {enabled, port, sni}`.
+All of the originally-planned cores are implemented behind the `cores.Core`
+interface:
 
-## ShadowTLS v3 (TLS-mimic, via sing-box, behind nginx not possible — own port or 443 direct)
-- sing-box `shadowtls` inbound v3 + a `shadowsocks` inbound it wraps; `handshake.server` points
-  at a real TLS site. Public TCP port. Link is the shadowsocks URI with the shadow-tls plugin.
+- [x] **TUIC v5** — sing-box inbound (independent, self-signed cert, BBR),
+      UDP port, firewall hole, `tuic://` share link. `cores.singbox.tuic`.
+- [x] **ShadowTLS v3** — sing-box inbound wrapping a loopback Shadowsocks
+      inbound; `cores.singbox.shadowtls`. Own public TCP port.
+- [x] **mieru / mita** — independent core, ports 14xxx. Client config JSON via
+      the sing-box bundle + Notes.
+- [x] **AmneziaWG** — incl. AWG **2.0 params** (`S3`/`S4` padding, `H1`–`H4`
+      as disjoint ranges) behind `cores.amneziawg.v2: true`. Default stays 1.x
+      until 2.0-capable tools/clients are universal.
 
-## mieru / mita (independent TCP/UDP core)
-- Install from `enfein/mieru` releases (mita binary), systemd unit `mita`.
-- Server config (`mita apply config server.json`):
-  ```json
-  {"portBindings":[{"port":PORT,"protocol":"TCP"}],
-   "users":[{"name":"u","password":"PW"}],"loggingLevel":"INFO","mtu":1400}
-  ```
-- Client: mieru does not use a vless-style URI; emit a mieru client-config JSON (Notes), which
-  NekoBox/Exclave import. Public TCP port band 14xxx, firewall hole.
+## Next candidates (opt-in, verify upstream before installing)
 
-## AmneziaWG (independent obfuscated-WireGuard core, Russia-strong)
-- Install `amneziawg-go` + `awg`/`awg-quick`. Server `[Interface]` adds obfuscation params
-  `Jc, Jmin, Jmax, S1, S2, H1, H2, H3, H4` (randomized per deployment) plus standard WG keys.
-- Generate X25519 WG keypairs natively (crypto/ecdh, as REALITY keys are done today).
-- Client: emit a `.conf` ([Interface]/[Peer] with the same obfuscation params) for the
-  AmneziaWG/AmneziaVPN app. Public UDP port band 15xxx, firewall hole, `EnableIPForward`.
-
-## Notes
-TUIC is the cheapest high-value next step (sing-box already installed, standard link). mieru and
-AmneziaWG broaden shape diversity against ML detection (see research-2026.md) but need their own
-client-config outputs rather than the share-link/subscription path.
+1. **Xray FinalMask** — TCP `sudoku`/`fragment`/`header-custom`, UDP
+   `salamander`/`gecko`/`xdns`/`xicmp`. Only path that covers an ICMP/DNS-only
+   blackout without a new binary. New; client support sparse → ship disabled.
+2. **NaiveProxy inbound via sing-box** — real Chromium TLS/HTTP2 stack for
+   RU/CN; needs a real domain + cert (TUI «Domain / proxy» covers that part).
+3. **ECH on the Cloudflare path** — outer SNI `cloudflare-ech.com`; works in
+   one Iran report, blocked by name in Russia.
+4. **AWG CPS chains (I1–I5)** — client-side mimicry packets (QUIC/DNS/TLS
+   look-alike). Not generated automatically upstream; needs hand-crafted
+   payload templates per target DPI. Leaves 1.5-style parity gap.

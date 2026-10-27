@@ -178,13 +178,16 @@ func singboxOutbounds(e Endpoint) []map[string]any {
 		} else {
 			hy2TLS["insecure"] = true
 		}
-		return []map[string]any{{
+		epOut := map[string]any{
 			"type": "hysteria2", "tag": e.Tag,
 			"server": e.Server, "server_port": e.Port,
 			"password": e.AuthPass,
-			"obfs":     map[string]any{"type": e.Obfs, "password": e.ObfsPass},
 			"tls":      hy2TLS,
-		}}
+		}
+		if e.Obfs != "" {
+			epOut["obfs"] = map[string]any{"type": e.Obfs, "password": e.ObfsPass}
+		}
+		return []map[string]any{epOut}
 
 	case "tuic":
 		tuicTLS := map[string]any{

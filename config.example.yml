@@ -69,7 +69,7 @@ cores:
       enabled: true
       port: 36713       # Rust Hysteria2 — complements the standalone hy2 binary
       sni: www.rust-lang.org
-      obfs: salamander
+      obfs: salamander   # salamander | gecko | "" (disabled)
 
   # ── sing-box ─ AnyTLS + Vision + TUIC + ShadowTLS ────────────────
   # Best client support (husi, exclave, nekobox use sing-box natively).
@@ -96,6 +96,9 @@ cores:
   # The standalone hysteria2 binary has the best Salamander obfuscation
   # and the most precise brutal CC. shoes hy2 is the Rust backup (port 36713).
   # alt_ports: same credentials; firewall REDIRECT maps all → port 443.
+  # ── standalone hysteria2 ─ QUIC + obfuscation ────────────────────
+  # Beats 50% induced packet loss; salamander obfs is the default,
+  # gecko is the 2026 option when clients support it, "" disables obfs.
   hysteria2:
     enabled: true
     port: 443           # UDP 443: looks like HTTP/3
@@ -118,6 +121,9 @@ cores:
   amneziawg:
     enabled: true         # obfuscated WireGuard — junk headers, Russia-grade
     port: 51820
+    # v2: true            # AWG 2.0: cookie/transport padding (S3/S4) + H1–H4 as
+                          # disjoint ranges. Needs 2.0-capable awg tools/kernel
+                          # AND client (AmneziaVPN/NekoBox forks). Default 1.x.
 
 subscription:
   enabled: true

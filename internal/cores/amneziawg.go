@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -159,8 +160,9 @@ func (AmneziaWG) Build(p *Plan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	// Obfuscation params (stable across runs)
-	ob := awgObfs(p.St)
+	// Obfuscation params (stable across runs). v2 adds cookie/transport
+	// padding (S3/S4) and turns the magic headers into ranges.
+	ob := awgObfs(p.St, a.V2)
 	ctx := context.Background()
 	iface := defaultIface(ctx, p.Sys)
 
@@ -168,25 +170,14 @@ func (AmneziaWG) Build(p *Plan) (Result, error) {
 PrivateKey = %s
 Address = 10.66.66.1/24
 ListenPort = %d
-Jc = %d
-Jmin = %d
-Jmax = %d
-S1 = %d
-S2 = %d
-H1 = %d
-H2 = %d
-H3 = %d
-H4 = %d
-PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o %s -j MASQUERADE
+%sPostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o %s -j MASQUERADE
 PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o %s -j MASQUERADE
 
 [Peer]
 PublicKey = %s
 AllowedIPs = 10.66.66.2/32
 `,
-		srvPriv, a.Port,
-		ob.Jc, ob.Jmin, ob.Jmax, ob.S1, ob.S2,
-		ob.H1, ob.H2, ob.H3, ob.H4,
+		srvPriv, a.Port, ob.block(),
 		iface, iface,
 		cliPub,
 	)
@@ -195,16 +186,7 @@ AllowedIPs = 10.66.66.2/32
 PrivateKey = %s
 Address = 10.66.66.2/24
 DNS = 1.1.1.1, 8.8.8.8
-Jc = %d
-Jmin = %d
-Jmax = %d
-S1 = %d
-S2 = %d
-H1 = %d
-H2 = %d
-H3 = %d
-H4 = %d
-
+%s
 [Peer]
 PublicKey = %s
 Endpoint = %s:%d
@@ -212,8 +194,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 `,
 		cliPriv,
-		ob.Jc, ob.Jmin, ob.Jmax, ob.S1, ob.S2,
-		ob.H1, ob.H2, ob.H3, ob.H4,
+		strings.TrimSpace(ob.block()),
 		srvPub, p.IP, a.Port,
 	)
 
@@ -241,29 +222,43 @@ PersistentKeepalive = 25
 
 	// sing-box wireguard outbound with AmneziaWG junk params (NekoBox/husi
 	// import it via the JSON bundle). Field names mirror the wg0.conf params.
+	// H ranges can't be represented in the sing-box schema; the fixed lo value
+	// is inside the server range so the header is accepted.
+	raw := map[string]any{
+		"type":        "wireguard",
+		"address":     []string{"10.66.66.2/32"},
+		"private_key": cliPriv,
+		"peers": []map[string]any{{
+			"address":                       p.IP,
+			"port":                          a.Port,
+			"public_key":                    srvPub,
+			"allowed_ips":                   []string{"0.0.0.0/0", "::/0"},
+			"persistent_keepalive_interval": 25,
+		}},
+		"mtu": 1420,
+		"jc":  ob.Jc, "jmin": ob.Jmin, "jmax": ob.Jmax,
+		"s1": ob.S1, "s2": ob.S2,
+		"h1": ob.H1lo, "h2": ob.H2lo, "h3": ob.H3lo, "h4": ob.H4lo,
+	}
+	// S3/S4 only in v2 mode — the AWG-capable sing-box forks use them; mainline
+	// sing-box and 1.x tools reject unknown fields.
+	if a.V2 {
+		raw["s3"], raw["s4"] = ob.S3, ob.S4
+	}
 	ep := links.Endpoint{
 		Tag:   "amneziawg",
 		Proto: "amneziawg",
-		Raw: map[string]any{
-			"type":        "wireguard",
-			"address":     []string{"10.66.66.2/32"},
-			"private_key": cliPriv,
-			"peers": []map[string]any{{
-				"address":                       p.IP,
-				"port":                          a.Port,
-				"public_key":                    srvPub,
-				"allowed_ips":                   []string{"0.0.0.0/0", "::/0"},
-				"persistent_keepalive_interval": 25,
-			}},
-			"mtu": 1420,
-			"jc":  ob.Jc, "jmin": ob.Jmin, "jmax": ob.Jmax,
-			"s1": ob.S1, "s2": ob.S2,
-			"h1": ob.H1, "h2": ob.H2, "h3": ob.H3, "h4": ob.H4,
-		},
+		Raw:   raw,
+	}
+	notes := map[string]string{"amneziawg-client-config": clientConf}
+	if a.V2 {
+		// The interface must come up with 2.0-only fields in wg0.conf; older
+		// kernel modules reject S3/S4 and ranged H1–H4.
+		notes["amneziawg"] = "v2 obfuscation enabled — requires the amneziawg kernel module + awg-quick 2.0 (and a 2.0-capable client). If the interface fails, rebuild via scripts/awg-build.sh."
 	}
 	return Result{
 		Endpoints: []links.Endpoint{ep},
-		Notes:     map[string]string{"amneziawg-client-config": clientConf},
+		Notes:     notes,
 	}, nil
 }
 
@@ -294,12 +289,60 @@ func clientWGKeys(st *state.State) (priv, pub string, err error) {
 }
 
 type awgParams struct {
-	Jc, Jmin, Jmax, S1, S2 int
-	H1, H2, H3, H4         uint32
+	Jc, Jmin, Jmax, S1, S2, S3, S4 int
+	H1lo, H2lo, H3lo, H4lo         uint32
+	H1hi, H2hi, H3hi, H4hi         uint32 // == lo unless v2 ranges
 }
 
-func awgObfs(st *state.State) awgParams {
-	// Persist params in state so client and server always agree.
+// hRange renders one magic-header field: a single value (AWG 1.x) or an
+// inclusive `lo-hi` range (AWG 2.0).
+func hRange(lo, hi uint32) string {
+	if lo == hi {
+		return itoa(int(lo))
+	}
+	return itoa(int(lo)) + "-" + itoa(int(hi))
+}
+
+// block renders the obfuscation fields as [Interface] lines. S3/S4 exist only
+// in AWG 2.0; 1.x tools reject unknown keys, so they are omitted entirely in
+// 1.x mode (S3 = 0 is NOT equivalent — the keys themselves must be absent).
+func (p awgParams) block() string {
+	b := fmt.Sprintf(`Jc = %d
+Jmin = %d
+Jmax = %d
+S1 = %d
+S2 = %d
+H1 = %s
+H2 = %s
+H3 = %s
+H4 = %s
+`, p.Jc, p.Jmin, p.Jmax, p.S1, p.S2,
+		hRange(p.H1lo, p.H1hi), hRange(p.H2lo, p.H2hi),
+		hRange(p.H3lo, p.H3hi), hRange(p.H4lo, p.H4hi))
+	if p.S3 > 0 || p.S4 > 0 {
+		b += fmt.Sprintf("S3 = %d\nS4 = %d\n", p.S3, p.S4)
+	}
+	return b
+}
+
+// awgObfs returns (or generates and persists) the obfuscation params, shared by
+// the wg0.conf, the client .conf and the sing-box outbound so all three always
+// agree. v2 opts into the AWG 2.0 parameter set (S3/S4 padding + H ranges);
+// it persists under a separate secret id so toggling back to 1.x restores the
+// original params instead of losing them.
+func awgObfs(st *state.State, v2 bool) awgParams {
+	if v2 {
+		sec := st.Secret("awg|obfs2", func() state.Secret {
+			return state.Secret{Password: randAWGParams2()}
+		})
+		var p awgParams
+		fmt.Sscanf(sec.Password,
+			"%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+			&p.Jc, &p.Jmin, &p.Jmax, &p.S1, &p.S2, &p.S3, &p.S4,
+			&p.H1lo, &p.H2lo, &p.H3lo, &p.H4lo,
+			&p.H1hi, &p.H2hi, &p.H3hi, &p.H4hi)
+		return p
+	}
 	sec := st.Secret("awg|obfs", func() state.Secret {
 		return state.Secret{Password: randAWGParams()}
 	})
@@ -307,7 +350,8 @@ func awgObfs(st *state.State) awgParams {
 	fmt.Sscanf(sec.Password,
 		"%d %d %d %d %d %d %d %d %d",
 		&p.Jc, &p.Jmin, &p.Jmax, &p.S1, &p.S2,
-		&p.H1, &p.H2, &p.H3, &p.H4)
+		&p.H1lo, &p.H2lo, &p.H3lo, &p.H4lo)
+	p.H1hi, p.H2hi, p.H3hi, p.H4hi = p.H1lo, p.H2lo, p.H3lo, p.H4lo
 	return p
 }
 
@@ -322,6 +366,45 @@ func randAWGParams() string {
 	h3 := randU32()
 	h4 := randU32()
 	return fmt.Sprintf("%d %d %d %d %d %d %d %d %d", jc, jmin, jmax, s1, s2, h1, h2, h3, h4)
+}
+
+// randAWGParams2 generates an AWG 2.0 parameter set. Constraints from the
+// kernel-side limits (amneziawg CONFIGURATION.md) and upstream recommendations:
+//   - S1+56 ≠ S2; S2 ≤ 1188 (we stay in 15..150 like 1.x)
+//   - S3 (cookie-padding) 0..1216, recommended 15..150
+//   - S4 (transport-padding) 0..65503, recommended 0..32 (costs MTU)
+//   - H1–H4 ranges: ≥ 5, pairwise disjoint and non-overlapping
+//
+// (Ranges are kept under 2^31 so every value stays parseable as %d.)
+func randAWGParams2() string {
+	jc := randInt(1, 128)
+	jmin := randInt(15, 1280)
+	jmax := jmin + randInt(1, 1280-jmin+1)
+	s1 := randInt(15, 150)
+	s2 := randInt(15, 150)
+	for s2 == s1+56 {
+		s2 = randInt(15, 150)
+	}
+	s3 := randInt(15, 150)
+	s4 := randInt(0, 32)
+
+	// Four pairwise-disjoint, non-overlapping header ranges (AWG 2.0 requires
+	// ranges; a collapsed lo==hi would look like a 1.x config). Cursor-walk so
+	// each interval starts strictly above the previous one's end.
+	cursor := randInt(5, 100_000_000)
+	span := func() (uint32, uint32) {
+		loV := uint32(cursor)
+		hiV := loV + uint32(randInt(1, 49999))
+		cursor = int(hiV) + randInt(100_000, 200_000)
+		return loV, hiV
+	}
+	h1lo, h1hi := span()
+	h2lo, h2hi := span()
+	h3lo, h3hi := span()
+	h4lo, h4hi := span()
+	return fmt.Sprintf("%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+		jc, jmin, jmax, s1, s2, s3, s4,
+		h1lo, h2lo, h3lo, h4lo, h1hi, h2hi, h3hi, h4hi)
 }
 
 func randInt(lo, hi int) int {

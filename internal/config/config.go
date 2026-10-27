@@ -54,6 +54,10 @@ type MieruCore struct {
 type AmneziaWGCore struct {
 	Enabled bool `yaml:"enabled"`
 	Port    int  `yaml:"port"` // public UDP
+	// V2 opts into AWG 2.0 obfuscation: cookie/transport padding (S3/S4) and
+	// magic-header ranges (H1–H4 as lo-hi). Needs a 2.0-capable amneziawg
+	// kernel module + client; default stays 1.x for compatibility.
+	V2 bool `yaml:"v2,omitempty"`
 }
 
 // Reality is one REALITY config bound to a single whitelisted SNI.
@@ -293,6 +297,16 @@ func Save(path string, c *Config) error {
 func (c *Config) Validate() error {
 	if c.Nginx.Port <= 0 || c.Nginx.Port > 65535 {
 		return fmt.Errorf("nginx.port %d out of range", c.Nginx.Port)
+	}
+	// A typo'd obfs type makes hysteria refuse the whole config at startup;
+	// whitelist what upstream supports instead of passing the value through.
+	// "" disables obfs (the block is omitted from the server config).
+	for _, o := range []string{c.Cores.Hysteria2.Obfs, c.Cores.Shoes.Hysteria2.Obfs} {
+		switch o {
+		case "", "salamander", "gecko":
+		default:
+			return fmt.Errorf("hysteria2 obfs %q: must be \"salamander\", \"gecko\" or empty", o)
+		}
 	}
 	// FrontSNI is optional — used as a DNS SAN in the self-signed cert when set.
 	for _, r := range append(append([]Reality{}, c.Cores.Shoes.Reality...), c.Cores.Singbox.Reality...) {

@@ -71,7 +71,6 @@ func (Hysteria) Build(p *Plan) (Result, error) {
 	cfg := map[string]any{
 		"listen": ":" + itoa(h.Port),
 		"tls":    map[string]any{"cert": hyDir + "/server.crt", "key": hyDir + "/server.key"},
-		"obfs":   map[string]any{"type": h.Obfs, h.Obfs: map[string]any{"password": obfs}},
 		"auth":   map[string]any{"type": "password", "password": auth},
 		"quic": map[string]any{
 			"initStreamReceiveWindow": 26843545, "maxStreamReceiveWindow": 26843545,
@@ -82,6 +81,12 @@ func (Hysteria) Build(p *Plan) (Result, error) {
 		"masquerade": map[string]any{
 			"type": "proxy", "proxy": map[string]any{"url": "https://" + h.SNI, "rewriteHost": true},
 		},
+	}
+	// obfs is optional: an empty Obfs disables it entirely (the server and
+	// client both drop the block). With salamander/gecko the type name is the
+	// obfs subkey, per hysteria's config syntax.
+	if h.Obfs != "" {
+		cfg["obfs"] = map[string]any{"type": h.Obfs, h.Obfs: map[string]any{"password": obfs}}
 	}
 	out, err := yaml.Marshal(cfg)
 	if err != nil {

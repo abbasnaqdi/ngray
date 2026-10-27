@@ -36,8 +36,8 @@ ngray update        # upgrade every installed core
 ## Worth adding (opt-in, not defaults)
 
 1. **Xray FinalMask** (`XTLS/Xray-core`, 2026): TCP `sudoku`, `fragment`, `header-custom`; UDP `salamander`, `gecko`, `xdns`, `xicmp`. Only path that covers an ICMP/DNS-only blackout without a new binary. New and client support is sparse — ship disabled.
-2. **Hysteria2 Gecko obfs** — set `cores.hysteria2.obfs: gecko` (config already accepts any obfs type; clients must support it).
-3. **AmneziaWG 2.0** — `S3/S4`, `H1–H4` *ranges*, `I1–I5` CPS mimic packets. Requires 2.0-capable `awg-tools` and clients; keep 1.x as the default until that is universal.
+2. **Hysteria2 Gecko obfs** — `cores.hysteria2.obfs: gecko` (ngray validates obfs against `salamander|gecko`; `""` disables it). Clients must support it too.
+3. **AmneziaWG 2.0** — `S3/S4`, `H1–H4` *ranges*, `I1–I5` CPS mimic packets. **Shipped opt-in:** `cores.amneziawg.v2: true` in config.yml does S3/S4 + disjoint H ranges (server, client .conf and the sing-box bundle all regenerate consistently; I1–I5 stay manual). Requires 2.0-capable awg-tools/kernel and clients; 1.x remains the default.
 4. **NaiveProxy inbound via sing-box** — real Chromium TLS/HTTP2 stack; needs a real domain+cert. Useful for RU/CN, not an Iran allowlist bypass.
 5. **ECH on the Cloudflare path** — changes the visible SNI to `cloudflare-ech.com`; one Iran report shows it working where plain CF-WSS fails, but Russia blocks that outer name.
 

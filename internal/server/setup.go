@@ -321,18 +321,17 @@ func ensureNginx(ctx context.Context, sys *system.Env, o Options) error {
 }
 
 func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options) error {
-	// Back up a pre-existing non-ngray nginx.conf before replacing it; never
-	// touch it silently. ngray-owned configs (with the marker) are rebuilt in place.
-	if b, err := sys.ReadFile(nginx.ConfPath); err == nil && !strings.HasPrefix(string(b), nginx.Marker) {
-		dst := fmt.Sprintf("/etc/ngray/backup/%s/nginx.conf", time.Now().Format("20060102-150405"))
-		if err := sys.WriteFile(dst, b, 0o644); err == nil {
-			o.log("backed up existing nginx.conf → %s", dst)
-		}
-	}
-	// Keep the current config so a failed validation never leaves nginx broken.
+	// Snapshot the current config once: it is the rollback copy after a failed
+	// `nginx -t`, and the backup source when it is a foreign (non-ngray) config.
 	prev, hadPrev := []byte(nil), false
 	if b, err := sys.ReadFile(nginx.ConfPath); err == nil {
 		prev, hadPrev = b, true
+		if !strings.HasPrefix(string(b), nginx.Marker) {
+			dst := fmt.Sprintf("/etc/ngray/backup/%s/nginx.conf", time.Now().Format("20060102-150405"))
+			if err := sys.WriteFile(dst, b, 0o644); err == nil {
+				o.log("backed up existing nginx.conf → %s", dst)
+			}
+		}
 	}
 	if err := sys.WriteString(nginx.ConfPath, c.Render(), 0o644); err != nil {
 		return err

@@ -8,6 +8,22 @@ func TestDefaultValidatesAndHasUniqueSNIs(t *testing.T) {
 	}
 }
 
+func TestBadObfsRejected(t *testing.T) {
+	c := Default()
+	c.Cores.Hysteria2.Obfs = "salmander" // typo
+	if err := c.Validate(); err == nil {
+		t.Error("expected invalid obfs error")
+	}
+	c.Cores.Hysteria2.Obfs = "gecko"
+	if err := c.Validate(); err != nil {
+		t.Errorf("gecko obfs should validate: %v", err)
+	}
+	c.Cores.Hysteria2.Obfs = ""
+	if err := c.Validate(); err != nil {
+		t.Errorf("empty obfs should validate: %v", err)
+	}
+}
+
 func TestDuplicateSNIRejected(t *testing.T) {
 	c := Default()
 	c.Cores.Singbox.Reality[0].SNI = "www.debian.org" // already used by shoes anytls

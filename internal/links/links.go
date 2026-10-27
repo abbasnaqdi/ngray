@@ -102,8 +102,10 @@ func (e Endpoint) URI() string {
 		// No insecure flag: REALITY authenticates via keypair, not TLS chain.
 		return fmt.Sprintf("anytls://%s@%s?%s#%s", e.Password, host, q.Encode(), frag(e.Tag))
 	case "hysteria2":
-		q.Set("obfs", e.Obfs)
-		q.Set("obfs-password", e.ObfsPass)
+		if e.Obfs != "" {
+			q.Set("obfs", e.Obfs)
+			q.Set("obfs-password", e.ObfsPass)
+		}
 		q.Set("sni", e.SNI)
 		if e.Fingerprint != "" {
 			q.Set("pinSHA256", e.Fingerprint)
