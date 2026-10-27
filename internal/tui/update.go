@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -242,6 +244,15 @@ func (m Model) selectItem(it item) (tea.Model, tea.Cmd) {
 
 // ── Setup wizard form ─────────────────────────────────────────────────────────
 
+// setupRotateSub is set by submitForm and consumed by taskSetup (the wizard is
+// a single instance per process, so a package switch is safe and avoids
+// threading form state through every item closure).
+var setupRotateSub bool
+
+// clipTarget is the URL the 'y' key copies (OSC 52) when a links sheet is on
+// screen — set by taskLinks/taskSetup, cleared by other tasks.
+var clipTarget string
+
 func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.form.editing {
 		return m.updateFormEditing(msg)
@@ -284,8 +295,10 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case f.focused == formFieldDomainVal:
 			f.editing = true
 			f.editBuf = f.domainVal
-		case f.focused >= formCoreBase && f.focused < formFieldProceed:
+		case f.focused >= formCoreBase && f.focused < formFieldRotate:
 			f.coreOn[f.focused-formCoreBase] = !f.coreOn[f.focused-formCoreBase]
+		case f.focused == formFieldRotate:
+			f.rotate = !f.rotate
 		case f.focused == formFieldProceed:
 			return m.submitForm()
 		}
@@ -387,6 +400,8 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 	}
 
 	_ = config.Save(config.Path(), cfg) // best-effort; setup re-reads the file
+	// The setup task reads this package-level switch right before running.
+	setupRotateSub = m.form.rotate
 	return m.start(m.pendingItem)
 }
 
@@ -527,6 +542,18 @@ func (m Model) updateTask(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.running = false
 		return m, checkStatus
+	case "y":
+		// Copy the primary subscribe URL with OSC 52 (works over SSH in
+		// modern terminals/tmux with set-clipboard on).
+		if clipTarget != "" && m.clipDone {
+			if err := copyOSC52(clipTarget); err != nil {
+				m.lines = append(m.lines, errStyle.Render("  ✗ clipboard: "+err.Error()))
+			} else {
+				m.lines = append(m.lines, okStyle.Render("  ✓ copied to the system clipboard — paste with ctrl+shift+v"))
+			}
+			m.clipDone = false
+		}
+		return m, nil
 	case "ctrl+c":
 		return m, tea.Quit
 	}
@@ -547,6 +574,8 @@ func (m Model) start(it item) (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.taskCh, m.cancel = ch, cancel
 	m.screen, m.taskName, m.running, m.lines, m.taskErr = screenTask, it.name, true, nil, nil
+	clipTarget = "" // a fresh task clears the copy target; taskLinks re-sets it
+	m.clipDone = true
 	m.vp.SetContent("")
 	emit := func(s string) { ch <- taskLine(s) }
 	go func() { ch <- taskEnd{it.task(ctx, emit)} }()
@@ -558,4 +587,18 @@ func (m Model) disabled(it item) (bool, string) {
 		return false, ""
 	}
 	return it.disabled(&m)
+}
+
+// copyOSC52 puts a string on the system clipboard by writing the OSC 52
+// sequence straight to /dev/tty — it reaches the local/desktop terminal even
+// through SSH, and through tmux when set-clipboard is on.
+func copyOSC52(s string) error {
+	b64 := base64.StdEncoding.EncodeToString([]byte(s))
+	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer tty.Close()
+	_, err = fmt.Fprintf(tty, "\x1b]52;c;%s\x07", b64)
+	return err
 }

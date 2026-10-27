@@ -6,11 +6,12 @@ import (
 	"sync"
 )
 
-// Ranked returns the REALITY-fit results best-first (lowest latency + jitter).
+// Ranked returns the REALITY-fit results best-first (lowest latency + jitter),
+// applying the operator policy: no Iran-filtered SNIs, no over-latency hosts.
 func Ranked(results []Result) []Result {
 	fit := make([]Result, 0, len(results))
 	for _, r := range results {
-		if r.Fit() {
+		if operatorFit(r) {
 			fit = append(fit, r)
 		}
 	}

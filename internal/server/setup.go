@@ -31,6 +31,7 @@ type Options struct {
 	CandidatesPath string                        // path to candidates.sni; auto-resolved if empty
 	Sandbox        bool                          // redirect writes + skip host mutations
 	Root           string                        // sandbox dir (default ./sandbox)
+	RotateSub      bool                          // regenerate the subscription token → old links 404
 	Confirm        func(prompt string) bool      // install permission gate
 	Log            func(format string, a ...any) // progress output
 }
@@ -73,6 +74,23 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Domain != "" {
 		if gone := cfg.StripCDNSNIs(cdn.Domain); len(gone) > 0 {
 			o.log("removed %v from core SNI lists — the fronting domain already routes via Cloudflare", gone)
+		}
+	}
+	// Converge every install to the same readable size: pre-cap configs may
+	// carry hundreds of REALITY routes (steep endpoint counts for clients).
+	if n := trimLegacySNIs(cfg); n > 0 {
+		o.log("trimmed %d extra SNIs to the %d/core cap — regen re-fits them by quality", n, maxPerCore)
+	}
+	if bad := scanIranFiltered(cfg); len(bad) > 0 {
+		o.log("replacing %d Iran-filtered SNI(s): %v", len(bad), bad)
+		cp := o.CandidatesPath
+		if cp == "" {
+			cp = candidatesNear(o.ConfigPath)
+		}
+		if n, err := swapFilteredSNIs(ctx, cfg, cp); err != nil {
+			o.log("warning: SNI swap failed: %v", err)
+		} else {
+			o.log("  swapped %d in from the local candidate pool — regen re-ranks by fitness later", n)
 		}
 	}
 
@@ -152,6 +170,14 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	if cfg.Subscription.Enabled {
 		subToken = st.EnsureSubToken()
 		token := subToken
+		// Rotation is operator-opt-in: the link is stable across setups by
+		// default; flipping it issues a fresh token and kills old links.
+		if o.RotateSub {
+			rotated := st.RotateSubToken()
+			token = rotated
+			subToken = rotated
+			o.log("subscription link ROTATED — the old URL now serves 404")
+		}
 
 		// Self-signed cert: regenerate if missing or if the server IP changed.
 		if !sys.CertHasIPSAN(sub.CertFile, ip) {
@@ -190,6 +216,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 			CertFile:    sub.CertFile,
 			KeyFile:     sub.KeyFile,
 			HTTPSPort:   httpsPort,
+			Token:       token,
 		}
 		deploy.SubURL = sub.HTTPSURL(ip, token, httpsPort)
 		deploy.SubHTTPURL = sub.URL(ip, token)
@@ -218,6 +245,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 					Domain: subDomain, Backend: subBackend,
 					CertFile: cdn.CertFile, KeyFile: cdn.KeyFile,
 					Dir: sub.Dir, BundleFile: "bundle", SingboxFile: "singbox-bundle.json",
+					Token: token,
 				}
 				deploy.SubDomainURL = "https://" + subDomain + "/s/" + token
 				deploy.SubDomainSingboxURL = "https://" + subDomain + "/sb/" + token

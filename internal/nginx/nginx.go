@@ -30,6 +30,7 @@ type Subscription struct {
 	CertFile    string // absolute PEM cert path (empty → HTTP-only)
 	KeyFile     string // absolute PEM key path
 	HTTPSPort   int    // HTTPS listening port; 0 = HTTP-only
+	Token       string // required sub-token: any other /s/…/sb/… path 404s
 }
 
 type Config struct {
@@ -54,6 +55,43 @@ type CDNSub struct {
 	Dir         string
 	BundleFile  string
 	SingboxFile string
+	Token       string // required sub-token (mirrors Subscription.Token)
+}
+
+// subLocations renders the token-guarded /s/ and /sb/ locations. The capture
+// compares the URL token against the CURRENT expected token, so rotated links
+// (old token) stop serving immediately. Empty token → unguarded legacy block.
+func subLocations(sub *Subscription) string {
+	var b strings.Builder
+	if sub.Token == "" {
+		// No token context (tests, exotic callers): unguarded legacy block.
+		fmt.Fprintf(&b, `
+        location ~ ^/s/ { default_type text/plain; try_files /%s =404; }
+`, sub.BundleFile)
+		if sub.SingboxFile != "" {
+			fmt.Fprintf(&b, `
+        location ~ ^/sb/ { default_type application/json; try_files /%s =404; }
+`, sub.SingboxFile)
+		}
+		return b.String()
+	}
+	fmt.Fprintf(&b, `
+        location ~ ^/s/(?<subtok>[0-9a-f]+)$ {
+            if ($subtok != "%s") { return 404; }
+            default_type text/plain;
+            try_files /%s =404;
+        }
+`, sub.Token, sub.BundleFile)
+	if sub.SingboxFile != "" {
+		fmt.Fprintf(&b, `
+        location ~ ^/sb/(?<subsb>[0-9a-f]+)$ {
+            if ($subsb != "%s") { return 404; }
+            default_type application/json;
+            try_files /%s =404;
+        }
+`, sub.Token, sub.SingboxFile)
+	}
+	return b.String()
 }
 
 // ProxyRoute serves an arbitrary service behind a trusted domain via nginx
@@ -136,13 +174,9 @@ events {
         listen 80;
         server_name _;
         root %s;
-        location ~ ^/s/ {
-            default_type text/plain;
-            try_files /%s =404;
-        }
-        location / { return 444; }
+%s        location / { return 444; }
     }
-`, c.Sub.Dir, c.Sub.BundleFile)
+`, c.Sub.Dir, subLocations(c.Sub))
 
 		// HTTPS on configured port — self-signed TLS; clients must enable skip-cert-verify
 		if c.Sub.CertFile != "" && c.Sub.KeyFile != "" && c.Sub.HTTPSPort > 0 {
@@ -158,22 +192,9 @@ events {
         ssl_session_timeout 10m;
         server_name _;
         root %s;
-        location ~ ^/s/ {
-            default_type text/plain;
-            try_files /%s =404;
-        }
-`, c.Sub.HTTPSPort, c.Sub.CertFile, c.Sub.KeyFile, c.Sub.Dir, c.Sub.BundleFile)
-
-			if c.Sub.SingboxFile != "" {
-				fmt.Fprintf(&b, `        location ~ ^/sb/ {
-            default_type application/json;
-            try_files /%s =404;
-        }
-`, c.Sub.SingboxFile)
-			}
-			b.WriteString(`        location / { return 444; }
+%s        location / { return 444; }
     }
-`)
+`, c.Sub.HTTPSPort, c.Sub.CertFile, c.Sub.KeyFile, c.Sub.Dir, subLocations(c.Sub))
 		}
 	}
 
@@ -188,12 +209,13 @@ events {
         ssl_protocols       TLSv1.2 TLSv1.3;
         server_name %s;
         root %s;
-        location ~ ^/s/  { default_type text/plain;      try_files /%s =404; }
-        location ~ ^/sb/ { default_type application/json; try_files /%s =404; }
-        location / { return 404; }
+%s        location / { return 404; }
     }
 `, c.CDNSub.Backend, c.CDNSub.CertFile, c.CDNSub.KeyFile, c.CDNSub.Domain,
-			c.CDNSub.Dir, c.CDNSub.BundleFile, c.CDNSub.SingboxFile)
+			c.CDNSub.Dir, subLocations(&Subscription{
+				Dir: c.CDNSub.Dir, BundleFile: c.CDNSub.BundleFile,
+				SingboxFile: c.CDNSub.SingboxFile, Token: c.CDNSub.Token,
+			}))
 	}
 
 	// Reverse proxy routes: each domain gets a loopback TLS server that

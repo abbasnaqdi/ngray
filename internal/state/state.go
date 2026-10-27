@@ -128,6 +128,14 @@ func (s *State) EnsureSubToken() string {
 	return s.SubToken
 }
 
+// RotateSubToken replaces the subscription token and returns it. Paired with
+// nginx's token guard, this makes every previously distributed link fail with
+// 404 the instant the new config is live.
+func (s *State) RotateSubToken() string {
+	s.SubToken = RandHex(16)
+	return s.SubToken
+}
+
 // NewUUID returns an RFC 4122 version-4 UUID.
 func NewUUID() string {
 	b := make([]byte, 16)

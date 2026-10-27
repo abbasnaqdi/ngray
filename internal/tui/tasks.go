@@ -17,6 +17,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/domain"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
+	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
@@ -31,10 +32,10 @@ func buildItems() []item {
 			wizardBefore: true,
 			task:         taskSetup},
 		{key: "r", name: "Re-select SNIs",
-			desc: "Test all SNI candidates and assign the best-fit ones to every core. Run this if connections are failing, then re-run setup.",
+			desc: "Test all SNI candidates and assign the best-fit ones to every core. Excludes Iran-filtered hosts and high-latency ones, then re-run setup.",
 			task: taskRegenSNIs},
 		{key: "2", name: "Client links · subscribe",
-			desc: "Show the share links and the fixed subscribe URL from the last setup. Import them into v2rayN / nekoray / husi.",
+			desc: "Clean link sheet: the fixed subscribe URLs + one share link per config. Press y to copy the primary link (OSC 52, works over SSH).",
 			task: taskLinks},
 		{key: "3", name: "Test SNIs (live)",
 			desc: "Probe candidate domains for REALITY fitness (TLS1.3 + h2 + X25519) with live results. Pick OK ones for your configs.",
@@ -61,7 +62,7 @@ func buildItems() []item {
 			desc: "Preview the default-drop ruleset (ssh + the ports your config uses); applies it when run as root.",
 			task: taskFirewall},
 		{key: "8", name: "Doctor",
-			desc: "Diagnose cores, nginx ownership, BBR and any foreign panels (x3-ui etc. are left untouched).",
+			desc: "Full diagnosis: nginx, cores, live subscription probes (auto-repairs), domain reachability, cert expiry, BBR, foreign panels.",
 			task: taskDoctor},
 		{key: "p", name: "Domain / proxy",
 			desc:         "Put a domain in front of the subscription and/or a service: Cloudflare Origin cert, DNS A record, reverse proxy. Token is cached in /etc/ngray/cf_token.",
@@ -130,6 +131,7 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 		StatePath:      state.Path(),
 		CandidatesPath: candidatesPath(),
 		Sandbox:        sandbox,
+		RotateSub:      setupRotateSub && !sandbox,
 		Confirm:        func(string) bool { return true },
 		Log:            func(f string, a ...any) { emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...)) },
 	})
@@ -137,7 +139,11 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 		return err
 	}
 	emit("")
-	emit(okStyle.Render(fmt.Sprintf("✓ %d endpoint(s) — use menu item 2 for individual links", len(d.Endpoints))))
+	body := fmt.Sprintf("✓ %d endpoint(s) — menu 2 shows the clean link sheet", len(d.Endpoints))
+	if setupRotateSub && !sandbox {
+		body += "\n✓ subscription link ROTATED — the old URL now serves 404"
+	}
+	emit(okStyle.Render(body))
 	if d.SubURL != "" || d.SubDomainURL != "" {
 		emit("")
 		emit(keyStyle.Render("subscribe"))
@@ -175,13 +181,63 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	if err != nil {
 		return err
 	}
-	cfg, _ := config.LoadOrDefault(config.Path())
-	var buf bytes.Buffer
-	if err := server.RenderClient(&buf, st, cfg); err != nil {
-		return err
+	d := st.Deploy
+	if d == nil {
+		return fmt.Errorf("no deployment found — run Server setup first")
 	}
-	emitBuf(emit, &buf)
+	clipTarget = ""
+
+	emit(titleStyle.Render("Subscribe") + dimStyle.Render("  (y copies the primary link)"))
+	emit("")
+	if d.SubDomainURL != "" {
+		emit("  " + keyStyle.Render("base64  ") + okStyle.Render(d.SubDomainURL))
+		clipTarget = d.SubDomainURL
+	}
+	if d.SubDomainSingboxURL != "" {
+		emit("  " + keyStyle.Render("sbJSON  ") + okStyle.Render(d.SubDomainSingboxURL))
+	}
+	if d.SubHTTPURL != "" {
+		emit("  " + keyStyle.Render("http    ") + okStyle.Render(d.SubHTTPURL))
+	}
+	if d.SubURL != "" {
+		emit("  " + keyStyle.Render("https   ") + okStyle.Render(d.SubURL))
+	}
+	if fp := d.SubCertFingerprint; fp != "" {
+		emit(dimStyle.Render("  https uses the self-signed cert: pinSHA256=" + fp[:24] + "… (clients verify)"))
+	}
+	emit("")
+
+	// Individual share links — bare URIs, one per line, so a terminal mouse
+	// drag (or editor paste) grabs exactly the URL. Grouped by protocol for
+	// readability; the SNI of each config is visible inside the URI itself.
+	emit(keyStyle.Render("Endpoints") + dimStyle.Render("  ("+fmt.Sprint(countLinks(d.Endpoints))+" — one URI per line)"))
+	for _, e := range d.Endpoints {
+		if u := e.URI(); u != "" {
+			emit(u)
+		}
+	}
+	emit("")
+
+	if n := len(d.Notes); n > 0 {
+		emit(keyStyle.Render("Extras"))
+		for k := range d.Notes {
+			emit("  " + k)
+		}
+		emit("")
+		emit(dimStyle.Render("  (raw configs: ngray client links)"))
+	}
 	return nil
+}
+
+// countLinks counts endpoints with a shareable URI.
+func countLinks(eps []links.Endpoint) int {
+	n := 0
+	for _, e := range eps {
+		if e.URI() != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func taskSNI(ctx context.Context, emit func(string)) error {
@@ -256,7 +312,7 @@ func taskStatus(ctx context.Context, emit func(string)) error {
 			case server.Warn:
 				mark = warnStyle.Render("WARN")
 			}
-			emit(mark + " " + pad(c.Name, 26) + c.Detail)
+			emit(mark + " " + pad(c.Name, 24) + " " + c.Detail)
 			if c.Fix != "" && c.Status != server.Pass {
 				emit(dimStyle.Render("      fix: " + c.Fix))
 			}
@@ -316,9 +372,9 @@ func taskDoctor(ctx context.Context, emit func(string)) error {
 		case server.Fail:
 			mark = errStyle.Render(string(c.Status))
 		}
-		emit(mark + " " + pad(c.Name, 18) + c.Detail)
+		emit(mark + " " + pad(c.Name, 24) + " " + c.Detail)
 		if c.Fix != "" && c.Status != server.Pass {
-			emit(dimStyle.Render("      fix: " + c.Fix))
+			emit(dimStyle.Render("    ↳ " + c.Fix))
 		}
 	}
 	// Root + at least one live sub failure: apply the safe repairs (perms,
@@ -423,7 +479,7 @@ func taskDomainCheck(ctx context.Context, emit func(string), dom string) error {
 		}
 	}
 	emit("")
-	emit(dimStyle.Render("  hint: `ngray domain check " + dom + " [--ip YOUR.SERVER.IP]` prints the full report any time"))
+	emit(dimStyle.Render("  hint: ngray domain check " + dom + " — full report (add --ip YOUR.IP)"))
 	return nil
 }
 

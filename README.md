@@ -177,7 +177,6 @@ ngray server setup                        # apply nginx + bundle
 
 Set Cloudflare SSL/TLS to **Full (strict)**. The origin cert is an ECDSA
 Cloudflare Origin CA certificate valid for the domain (+ `www.`).
-
 ## Commands
 
 | Command | What it does |
@@ -248,9 +247,10 @@ Add one URL in any app; all configs appear and auto-update, and the sing-box `au
 `config.yml` lives next to the binary. `config.example.yml` shows all options with explanations. On a fresh server with no `config.yml`, setup auto-selects optimal SNIs from `snis/candidates.sni`.
 
 Key facts:
+- Volume policy: **≤24 REALITY routes per core** + ≤8 XHTTP (older configs are trimmed to this on every setup — hundreds-of-configs installs converge to the same readable size). The **primary subscribe link stays FIXED across setups**; rotation is opt-in (wizard toggle *Rotate sub link* — a rotated link kills all previously distributed URLs through nginx's token guard).
 - Every REALITY SNI across all cores must be unique (nginx routes one SNI to one backend).
 - `www.X` and `X` count as separate SNIs — use both for double coverage.
-- Auto-SNI consumes essentially the whole REALITY-fit pool (hundreds of configs), quality-first: the proven tier and low-latency HTTP-200 destinations lead, slow hosts are dropped. `subscription.front_sni` is given its own dedicated SNI so it never collides with a route.
+- Iran policy: hosts filtered/interfered with on Iranian networks (Google, YouTube, X/Twitter, Telegram, GitHub, Meta, Wikipedia, OpenAI, TikTok, …) are **excluded as SNI**, alongside destinations requiring >280ms from the server; each quality SNI is served as a *pair* — the CF-fronted domain subscription (primary) + its direct-IP share link. `subscription.front_sni` is given its own dedicated SNI so it never collides with a route.
 - `cores.xray.cdn` enables optional Cloudflare fronting (domain WS proxy + CF-served subscription) — see [Cloudflare fronting](#cloudflare-fronting-optional-ip-independent-fallback).
 - Cores without nginx routing (hysteria2, TUIC, ShadowTLS, mieru) have their own public ports.
 - `proxy-state.json` (0600) persists all generated keys, credentials and the subscribe token — re-running setup is idempotent.

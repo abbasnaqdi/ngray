@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
@@ -21,6 +23,119 @@ func autoPopulateSNIs(ctx context.Context, candidatesPath, configPath string, cf
 // `ngray sni regen`).
 func RegenerateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any)) error {
 	return populateSNIs(ctx, candidatesPath, configPath, cfg, log, true)
+}
+
+// maxPerCore caps REALITY routes per core (see populateSNIs). Package-level so
+// legacy configs are trimmed to exactly this budget on every setup.
+const maxPerCore = 24
+
+// maxXHTTP caps the XHTTP slice on every setup.
+const maxXHTTP = 8
+
+// trimLegacySNIs caps config lists at the populate budget so installs created
+// before the volume policy converge to the same readable size on every setup.
+// The FIRST entries are kept — legacy lists were ranked at creation time.
+// Returns how many entries were dropped.
+func trimLegacySNIs(cfg *config.Config) int {
+	dropped := 0
+	if n := len(cfg.Cores.Xray.Reality) - maxPerCore; n > 0 {
+		dropped += n
+		cfg.Cores.Xray.Reality = cfg.Cores.Xray.Reality[:maxPerCore]
+	}
+	if n := len(cfg.Cores.Shoes.Reality) - maxPerCore; n > 0 {
+		dropped += n
+		cfg.Cores.Shoes.Reality = cfg.Cores.Shoes.Reality[:maxPerCore]
+	}
+	if n := len(cfg.Cores.Singbox.Reality) - maxPerCore; n > 0 {
+		dropped += n
+		cfg.Cores.Singbox.Reality = cfg.Cores.Singbox.Reality[:maxPerCore]
+	}
+	if n := len(cfg.Cores.Xray.XHTTP) - maxXHTTP; n > 0 {
+		dropped += n
+		cfg.Cores.Xray.XHTTP = cfg.Cores.Xray.XHTTP[:maxXHTTP]
+	}
+	return dropped
+}
+
+// scanIranFiltered lists every configured core SNI that borrows an
+// organisation known to be filtered from Iranian networks. Server-side tests
+// pass for them, so only this policy saves the user an instant RST.
+func scanIranFiltered(cfg *config.Config) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, h := range cfg.RouteSNIs() {
+		if sni.IranFiltered(h) && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// swapFilteredSNIs replaces each Iran-filtered SNI with the next unused local
+// candidate (preferred tier first) — no sweep, instant. Returns the count.
+func swapFilteredSNIs(ctx context.Context, cfg *config.Config, candidatesPath string) (int, error) {
+	pref, ext, err := sni.LoadTiered(candidatesPath)
+	if err != nil && len(pref) == 0 && len(ext) == 0 {
+		return 0, fmt.Errorf("load SNI candidates: %w", err)
+	}
+	banned := map[string]bool{}
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil {
+		for _, d := range cfg.CDNDomains() {
+			banned[strings.ToLower(d)] = true
+		}
+	}
+	for _, h := range cfg.RouteSNIs() {
+		banned[strings.ToLower(h)] = true
+	}
+	pool := make([]string, 0, len(pref)+len(ext))
+	pool = append(pool, pref...)
+	pool = append(pool, ext...)
+	nextFree := func() string {
+		for _, h := range pool {
+			lh := strings.ToLower(h)
+			if banned[lh] || sni.IranFiltered(lh) {
+				continue
+			}
+			banned[lh] = true
+			return h
+		}
+		return ""
+	}
+	swapped := 0
+	for i := range cfg.Cores.Xray.Reality {
+		if sni.IranFiltered(cfg.Cores.Xray.Reality[i].SNI) {
+			if repl := nextFree(); repl != "" {
+				cfg.Cores.Xray.Reality[i].SNI = repl
+				swapped++
+			}
+		}
+	}
+	for i := range cfg.Cores.Shoes.Reality {
+		if sni.IranFiltered(cfg.Cores.Shoes.Reality[i].SNI) {
+			if repl := nextFree(); repl != "" {
+				cfg.Cores.Shoes.Reality[i].SNI = repl
+				swapped++
+			}
+		}
+	}
+	for i := range cfg.Cores.Singbox.Reality {
+		if sni.IranFiltered(cfg.Cores.Singbox.Reality[i].SNI) {
+			if repl := nextFree(); repl != "" {
+				cfg.Cores.Singbox.Reality[i].SNI = repl
+				swapped++
+			}
+		}
+	}
+	for i := range cfg.Cores.Xray.XHTTP {
+		if sni.IranFiltered(cfg.Cores.Xray.XHTTP[i].SNI) {
+			if repl := nextFree(); repl != "" {
+				cfg.Cores.Xray.XHTTP[i].SNI = repl
+				swapped++
+			}
+		}
+	}
+	return swapped, nil
 }
 
 func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any), force bool) error {
@@ -93,7 +208,6 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 	// bounded pool per core — enough distinct REALITY destinations to rotate
 	// against blocks, few enough that nginx/firewall/clients stay readable.
 	// Each SNI is unique (sniBudget never repeats a host) and latency-ranked.
-	const maxPerCore = 24
 	total := len(ranked)
 	xhttpN := min(min(total/8, 24), 8)
 	rest := max(total-xhttpN-1, 0) // reserve one for the shared best SNI below

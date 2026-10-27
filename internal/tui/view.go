@@ -174,6 +174,13 @@ func (m Model) viewSetupForm() string {
 	b.WriteString(mutedStyle.Render("  xray · shoes · sing-box  — configured in config.yml") + "\n")
 
 	b.WriteString("\n")
+	b.WriteString(formToggleRow(f.focused == formFieldRotate, "Rotate sub link", f.rotate))
+	if f.rotate {
+		b.WriteString(dimStyle.Render("     ON — a new token is generated after setup; OLD subscribe links 404") + "\n")
+	} else {
+		b.WriteString(dimStyle.Render("     default off — your existing subscribe URL stays the same") + "\n")
+	}
+	b.WriteString("\n")
 
 	if f.focused == formFieldProceed {
 		b.WriteString(selStyle.Render("  ❯ Proceed with setup  ") + "\n")
@@ -340,7 +347,11 @@ func (m Model) viewTask() string {
 		head = okStyle.Render("✓ "+m.taskName) + "  " + dimStyle.Render("done")
 	}
 	body := taskPanel.Width(maxInt(m.width-4, 20)).Render(strings.TrimRight(m.vp.View(), "\n"))
-	foot := mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  q quit") + "  " + dimStyle.Render("v"+version.Version)
+	foot := mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  q quit")
+	if clipTarget != "" {
+		foot = mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  y copy primary link  ·  q quit")
+	}
+	foot += "  " + dimStyle.Render("v"+version.Version)
 	if m.restartAfter && m.taskErr == nil {
 		foot = mutedStyle.Render("  enter restart to the new binary  ·  esc stay here") + "  " + dimStyle.Render("v"+version.Version)
 	}

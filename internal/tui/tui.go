@@ -51,8 +51,9 @@ const (
 	formFieldDomainOn  = 3 // serve through a Cloudflare-fronted domain too
 	formFieldDomainVal = 4 // editable domain, reachable only when domainOn
 	formCoreBase       = 5
-	formFieldProceed   = formCoreBase + numWizardCores // 7
-	numFormFields      = formFieldProceed + 1          // 8
+	formFieldRotate    = 7                                 // rotate the subscription token (opt-in)
+	formFieldProceed   = formCoreBase + numWizardCores + 1 // 8
+	numFormFields      = formFieldProceed + 1              // 9
 )
 
 var wizardCoreLabels = [numWizardCores]string{"hysteria2", "mieru"}
@@ -65,6 +66,7 @@ type setupForm struct {
 	domainOn  bool // also front the subscription through the CDN domain
 	domainVal string
 	coreOn    [numWizardCores]bool
+	rotate    bool // opt-in: new subscription token — old links stop working
 	focused   int
 	editing   bool   // true while user is typing into a text field
 	editBuf   string // in-progress text before commit
@@ -102,6 +104,7 @@ type Model struct {
 	armRegen bool // menu key "9" pressed twice → really wipe credentials
 
 	restartAfter bool // self-update finished → next enter re-launches the binary
+	clipDone     bool // one 'y'-copy per task run (screens emit feedback once)
 
 	domain domainForm
 
