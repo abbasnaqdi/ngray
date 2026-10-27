@@ -33,3 +33,21 @@ func TestRenderCDNSubTokenGuard(t *testing.T) {
 		t.Fatalf("CDN sub block lacks token guard:\n%s", out)
 	}
 }
+
+// The mixed text route (/sm/) is token-guarded exactly like /s/ and /sb/.
+func TestRenderMixedGuard(t *testing.T) {
+	out := Config{
+		Port: 443, Sink: 8442,
+		Sub: &Subscription{Dir: "/etc/ngray", BundleFile: "bundle",
+			SingboxFile: "sb.json", MixedFile: "mixed.txt", Token: "tokNOW"},
+	}.Render()
+	for _, want := range []string{
+		`^/sm/(?<subsm>[0-9a-f]+)$`,
+		`if ($subsm != "tokNOW") { return 404; }`,
+		"try_files /mixed.txt =404;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q", want)
+		}
+	}
+}

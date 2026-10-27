@@ -19,6 +19,24 @@ func Subscription(eps []Endpoint) string {
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(lines, "\n")))
 }
 
+// Mixed returns a plain-TEXT subscription body for clients (e.g. nekoray) that
+// read raw share links and/or sing-box JSON straight from the body: every
+// share URI on its own line, then a blank line, then the complete sing-box
+// JSON config. Nothing is base64-wrapped, so links stay visible and copyable.
+func Mixed(eps []Endpoint) (string, error) {
+	var lines []string
+	for _, e := range eps {
+		if u := e.URI(); u != "" {
+			lines = append(lines, u)
+		}
+	}
+	cfg, err := SingboxJSON(eps)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(lines, "\n") + "\n\n" + string(cfg) + "\n", nil
+}
+
 // SingboxJSON builds a sing-box client config with outbounds for every
 // endpoint. ShadowTLS produces two chained outbounds (shadowtls + shadowsocks).
 //

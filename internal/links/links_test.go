@@ -154,3 +154,41 @@ func TestSingboxJSONAutoFailover(t *testing.T) {
 		t.Errorf("single endpoint should not get a urltest group: %s", one)
 	}
 }
+
+// The mixed text subscription must be ONE plain-text body: raw links (no
+// base64) followed by the complete sing-box JSON — for text-subscription
+// clients like nekoray.
+func TestMixed(t *testing.T) {
+	eps := []Endpoint{
+		{Tag: "cf-ws-test", Proto: "vless-ws-tls", Server: "www.example.org", Port: 443, SNI: "www.example.org", UUID: "u1", Path: "/t/a/b"},
+		{Tag: "xray-reality-rustlang", Proto: "vless-vision", Server: "1.2.3.4", Port: 443, SNI: "www.rust-lang.org", PublicKey: "k", ShortID: "s", UUID: "u2"},
+	}
+	out, err := Mixed(eps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "ZXhhbXBsZQ") { // looks base64
+		t.Fatal("mixed body must not be base64-wrapped")
+	}
+	if !strings.Contains(out, "vless://u2@1.2.3.4") || !strings.Contains(out, "vless://u1@www.example.org") {
+		t.Fatalf("links lost:\n%s", out[:min(len(out), 300)])
+	}
+	// The JSON tail must parse as sing-box outbounds (mieru included verbatim).
+	i := strings.Index(out, "\n\n")
+	var cfg struct {
+		Outbounds []map[string]any `json:"outbounds"`
+	}
+	if err := json.Unmarshal([]byte(out[i+2:]), &cfg); err != nil {
+		t.Fatalf("json tail: %v", err)
+	}
+	if len(cfg.Outbounds) < 2 {
+		t.Fatalf("want ≥2 outbounds incl. auto group, got %d", len(cfg.Outbounds))
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

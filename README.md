@@ -238,6 +238,7 @@ Generated links import into:
 
 | URL | Format | Best for |
 |---|---|---|
+| `https://www.DOMAIN/sm/TOKEN` | **mixed plain-text** — raw share links + full sing-box JSON, **nothing base64-encoded** | nekoray/nekobox & any client reading text subscriptions — ONE URL for everything (incl. mieru via the JSON) |
 | `https://www.DOMAIN/sb/TOKEN` | **sing-box JSON** (auto + select groups) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru** |
 | `https://www.DOMAIN/s/TOKEN` | base64 URI list | v2rayNG · v2rayN · Streisand · Shadowrocket — URI configs (mieru only in JSON) |
 
@@ -245,6 +246,7 @@ Generated links import into:
 
 | URL | Format |
 |---|---|
+| `https://SERVER-IP:2053/sm/TOKEN` | mixed plain-text (raw links + JSON) |
 | `https://SERVER-IP:2053/sb/TOKEN` | sing-box JSON |
 | `https://SERVER-IP:2053/s/TOKEN` | base64 URI list |
 | `http://SERVER-IP/s/TOKEN` | base64 over plain HTTP (no cert errors anywhere) |

@@ -216,6 +216,14 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 				o.log("warning: singbox bundle: %v", err)
 			}
 		}
+		// Write the plain-TEXT mixed bundle: raw share links + the full
+		// sing-box JSON — one URL that text-subscription clients (nekoray & co)
+		// can read without any base64 decoding step.
+		if mixed, err := links.Mixed(endpoints); err == nil {
+			if err := sub.WriteMixed(sys, mixed); err != nil {
+				o.log("warning: mixed bundle: %v", err)
+			}
+		}
 
 		httpsPort := cfg.Subscription.HTTPSPort
 		if httpsPort <= 0 {
@@ -227,6 +235,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 			Dir:         sub.Dir,
 			BundleFile:  "bundle",
 			SingboxFile: "singbox-bundle.json",
+			MixedFile:   "mixed.txt",
 			CertFile:    sub.CertFile,
 			KeyFile:     sub.KeyFile,
 			HTTPSPort:   httpsPort,
@@ -236,6 +245,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		deploy.SubURL = sub.HTTPSURL(ip, token, httpsPort)
 		deploy.SubHTTPURL = sub.URL(ip, token)
 		deploy.SubSingboxURL = sub.SingboxURL(ip, token, httpsPort)
+		deploy.SubMixedURL = sub.MixedURL(ip, token, httpsPort)
 		if fp, err := sys.CertFingerprint(sub.CertFile); err == nil {
 			deploy.SubCertFingerprint = fp
 		}
@@ -260,12 +270,14 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 					Domain: subDomain, Backend: subBackend,
 					CertFile: cdn.CertFile, KeyFile: cdn.KeyFile,
 					Dir: sub.Dir, BundleFile: "bundle", SingboxFile: "singbox-bundle.json",
+					MixedFile: "mixed.txt",
 					Token:     token,
 					PathPorts: pathPorts,
 					WSRoutes:  cdnws,
 				}
 				deploy.SubDomainURL = "https://" + subDomain + "/s/" + token
 				deploy.SubDomainSingboxURL = "https://" + subDomain + "/sb/" + token
+				deploy.SubDomainMixedURL = "https://" + subDomain + "/sm/" + token
 				o.log("subscription also via Cloudflare: https://%s/s/<token> (no port)", subDomain)
 			}
 		} else if len(cfg.ProxyRoutes) > 0 {

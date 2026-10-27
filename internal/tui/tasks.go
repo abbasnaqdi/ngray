@@ -195,6 +195,12 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 
 	// Cloudflare-fronted subscribe URLs first — the primary ones.
 	var subs []string
+	if d.SubDomainMixedURL != "" {
+		subs = append(subs, d.SubDomainMixedURL)
+	}
+	if d.SubMixedURL != "" {
+		subs = append(subs, d.SubMixedURL)
+	}
 	if d.SubDomainURL != "" {
 		subs = append(subs, d.SubDomainURL)
 	}

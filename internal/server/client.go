@@ -109,9 +109,13 @@ func writeSubscribe(w io.Writer, d *state.Deploy) {
 	fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
 
 	// Primary: Cloudflare-fronted on the domain (no port, trusted edge cert,
-	// origin IP hidden). Two formats; pick by client.
-	if d.SubDomainSingboxURL != "" || d.SubDomainURL != "" {
+	// origin IP hidden). Formats by client; the mixed text URL covers both.
+	if d.SubDomainMixedURL != "" || d.SubDomainSingboxURL != "" || d.SubDomainURL != "" {
 		fmt.Fprintf(w, "\n  Primary — via Cloudflare (no port, trusted cert, IP hidden):\n")
+		if d.SubDomainMixedURL != "" {
+			fmt.Fprintf(w, "    mixed   %s\n", d.SubDomainMixedURL)
+			fmt.Fprintf(w, "            → nekoray/nekobox & most text clients: plain text, raw links + JSON, nothing encoded\n")
+		}
 		if d.SubDomainSingboxURL != "" {
 			fmt.Fprintf(w, "    sbJSON  %s\n", d.SubDomainSingboxURL)
 			fmt.Fprintf(w, "            → NekoBox/husi · sing-box · Hiddify  (full set, incl. mieru)\n")
@@ -125,6 +129,9 @@ func writeSubscribe(w io.Writer, d *state.Deploy) {
 	// Fallback: direct IP (self-signed) for when the domain is blocked.
 	if d.SubURL != "" || d.SubHTTPURL != "" {
 		fmt.Fprintf(w, "\n  Fallback — direct IP (use if the domain is blocked; self-signed → enable allow-insecure):\n")
+		if d.SubMixedURL != "" {
+			fmt.Fprintf(w, "    mixed   %s\n", d.SubMixedURL)
+		}
 		if d.SubSingboxURL != "" {
 			fmt.Fprintf(w, "    sbJSON  %s\n", d.SubSingboxURL)
 		}

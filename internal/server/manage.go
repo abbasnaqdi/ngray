@@ -85,6 +85,12 @@ func subProbeURLs(cfg *config.Config, st *state.State, ip string) []struct {
 			tls  bool
 		}{fmt.Sprintf("sub HTTPS :%d (loopback)", httpsPort),
 			fmt.Sprintf("https://127.0.0.1:%d/s/%s", httpsPort, token), true})
+		// The mixed text route (/sm/) guards its own location + file.
+		out = append(out, struct {
+			name string
+			url  string
+			tls  bool
+		}{"sub mixed :80 (loopback)", fmt.Sprintf("http://127.0.0.1/sm/%s", token), false})
 		if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
 			out = append(out, struct {
 				name string

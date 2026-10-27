@@ -27,6 +27,7 @@ type Subscription struct {
 	Dir         string // root directory (e.g. /etc/ngray) served by nginx
 	BundleFile  string // filename within Dir for /s/<token>  — base64 URI list
 	SingboxFile string // filename within Dir for /sb/<token> — sing-box JSON
+	MixedFile   string // filename within Dir for /sm/<token> — plain text: URIs + JSON
 	CertFile    string // absolute PEM cert path (empty → HTTP-only)
 	KeyFile     string // absolute PEM key path
 	HTTPSPort   int    // HTTPS listening port; 0 = HTTP-only
@@ -57,6 +58,7 @@ type CDNSub struct {
 	Dir         string
 	BundleFile  string
 	SingboxFile string
+	MixedFile   string    // plain-text mixed subscription (mirrors Subscription.MixedFile)
 	Token       string    // required sub-token (mirrors Subscription.Token)
 	PathPorts   []int     // path-proxied local services (mirrors Subscription.PathPorts)
 	WSRoutes    []WSRoute // per-SNI WS twins: client wss://DOMAIN/<path> → plain-ws backends
@@ -85,6 +87,11 @@ func subLocations(sub *Subscription) string {
         location ~ ^/sb/ { default_type application/json; try_files /%s =404; }
 `, sub.SingboxFile)
 		}
+		if sub.MixedFile != "" {
+			fmt.Fprintf(&b, `
+        location ~ ^/sm/ { default_type text/plain; try_files /%s =404; }
+`, sub.MixedFile)
+		}
 		return b.String()
 	}
 	fmt.Fprintf(&b, `
@@ -102,6 +109,15 @@ func subLocations(sub *Subscription) string {
             try_files /%s =404;
         }
 `, sub.Token, sub.SingboxFile)
+	}
+	if sub.MixedFile != "" {
+		fmt.Fprintf(&b, `
+        location ~ ^/sm/(?<subsm>[0-9a-f]+)$ {
+            if ($subsm != "%s") { return 404; }
+            default_type text/plain;
+            try_files /%s =404;
+        }
+`, sub.Token, sub.MixedFile)
 	}
 	return b.String()
 }
@@ -314,7 +330,7 @@ events {
 `, c.CDNSub.Backend, c.CDNSub.CertFile, c.CDNSub.KeyFile, c.CDNSub.Domain,
 			c.CDNSub.Dir, subLocations(&Subscription{
 				Dir: c.CDNSub.Dir, BundleFile: c.CDNSub.BundleFile,
-				SingboxFile: c.CDNSub.SingboxFile, Token: c.CDNSub.Token,
+				SingboxFile: c.CDNSub.SingboxFile, MixedFile: c.CDNSub.MixedFile, Token: c.CDNSub.Token,
 			}), wsLocations(c.CDNSub.WSRoutes), portLocations(c.CDNSub.PathPorts))
 	}
 

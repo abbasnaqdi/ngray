@@ -18,6 +18,7 @@ const (
 	Dir         = "/etc/ngray"
 	BundleFile  = Dir + "/bundle"              // base64 URI list (v2ray/clash format)
 	SingboxFile = Dir + "/singbox-bundle.json" // sing-box JSON outbound list
+	MixedFile   = Dir + "/mixed.txt"           // plain text: raw URIs + full sing-box JSON
 	CertFile    = Dir + "/sub-cert.pem"
 	KeyFile     = Dir + "/sub-key.pem"
 
@@ -42,9 +43,20 @@ func SingboxURL(serverIP, token string, port int) string {
 	return fmt.Sprintf("https://%s:%d/sb/%s", serverIP, port, token)
 }
 
+// MixedURL returns the plain-text mixed subscription URL: raw share links
+// followed by the full sing-box JSON — one URL both formats come from unencoded.
+func MixedURL(serverIP, token string, port int) string {
+	return fmt.Sprintf("https://%s:%d/sm/%s", serverIP, port, token)
+}
+
 // WriteBundle persists the base64 subscription content at BundleFile.
 func WriteBundle(sys *system.Env, content string) error {
 	return sys.WriteString(BundleFile, content, 0o644)
+}
+
+// WriteMixed persists the mixed text subscription at MixedFile.
+func WriteMixed(sys *system.Env, content string) error {
+	return sys.WriteString(MixedFile, content, 0o644)
 }
 
 // WriteSingboxBundle persists the sing-box JSON client config at SingboxFile.
