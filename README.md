@@ -152,6 +152,16 @@ Put a real domain in front of the subscription and a service so the server IP is
 hidden and the cert is trusted. The token is read from `NGRAY_CF_TOKEN`,
 `CF_API_TOKEN`, or `/etc/ngray/cf_token` (0600) — never hardcoded.
 
+**Two ways, pick one:**
+
+- **API Token (recommended, automatic):** `ngray domain token` prints the exact
+  2-minute recipe (which dashboard page, which two permissions: `Zone · DNS ·
+  Edit` + `Zone · Origin CA · Edit`, and what to copy — the long secret, not
+  the Token ID). Then the TUI `p` form does everything. SSL mode → **Full (strict)**.
+- **No token (manual DNS):** create the A record yourself in the dashboard,
+  leave the token empty, and ngray issues a **self-signed origin cert** instead —
+  set SSL mode → **Full (non-strict)**. Works end-to-end, no credentials stored.
+
 ```bash
 ngray domain set app.example.com          # enable CDN fronting in config.yml
 ngray domain dns app.example.com          # upsert the proxied A record

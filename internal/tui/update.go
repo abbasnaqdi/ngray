@@ -447,6 +447,8 @@ func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.editing, d.editBuf = true, d.cfToken
 		case dfDNS:
 			d.dns = !d.dns
+		case dfCheck:
+			return m.runDomainCheck()
 		case dfProceed:
 			return m.submitDomainForm()
 		}

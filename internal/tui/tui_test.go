@@ -27,8 +27,9 @@ func TestDomainFormView(t *testing.T) {
 	m.screen = screenDomainForm
 	m.domain.domain = "app.example.com"
 	m.domain.target = "http://127.0.0.1:8080"
+	m.domain.focused = dfToken // hints render only for the focused row
 	out := m.View()
-	for _, want := range []string{"Domain / proxy", "Domain", "Target", "CF token", "Apply", "cached", "http://127.0.0.1"} {
+	for _, want := range []string{"Domain / proxy", "Domain", "Target", "CF token", "Apply", "Check now", "cached after apply"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("domain form missing %q", want)
 		}

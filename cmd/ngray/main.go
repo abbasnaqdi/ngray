@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -133,6 +134,40 @@ func cmdConfig(args []string) error {
 	}
 	fmt.Printf("config valid: nginx:%d  subscription:%v  hysteria2:%v\n",
 		c.Nginx.Port, c.Subscription.Enabled, c.Cores.Hysteria2.Enabled)
+	return nil
+}
+
+// cmdDomainToken prints the exact Cloudflare token recipe and the dashboard
+// URL; running it on a desktop also opens the panel in the default browser.
+func cmdDomainToken() error {
+	fmt.Println(`Create the token ngray needs (2 minutes):
+
+  1. Open:  https://dash.cloudflare.com/profile/api-tokens
+  2. "Create Token" → "Edit zone DNS" template → Continue.
+  3. Add a second permission:   Zone · Origin CA · Edit
+     (the template only includes Zone · DNS · Edit)
+  4. Zone Resources: "All zones" — or a specific zone that owns your domain.
+  5. Finally: "Continue to summary" → CREATE TOKEN.
+  6. Copy the long secret shown ONCE (starts with a few letters and looks
+     like 37+ random chars). It is NOT the "Token ID" next to it, NOT the
+     Account ID, NOT the Global API Key.
+  7. Paste it into the TUI:  Domain / proxy (p) → CF token → enter → paste.
+     It verifies once, then is cached in /etc/ngray/cf_token (mode 0600).
+
+Permissions the token needs:
+  · Zone · DNS          Edit    → create/update the proxied A record
+  · Zone · Origin CA    Edit    → request the Origin CA certificate
+
+Then:
+  p  Domain / proxy  → Apply          (cert + DNS + config)
+  ngray domain check <domain>                          (no token; probes DNS/edge/origin)`)
+	url := "https://dash.cloudflare.com/profile/api-tokens"
+	if _, err := exec.LookPath("xdg-open"); err == nil {
+		_ = exec.Command("xdg-open", url).Start()
+		fmt.Println("\nopening the panel in your browser:", url)
+	} else {
+		fmt.Println("\nopen this URL in a browser:", url)
+	}
 	return nil
 }
 
@@ -311,11 +346,13 @@ func cmdDomain(args []string) error {
 			return cmdDomainDNS(args[1:])
 		case "set":
 			return cmdDomainSet(args[1:])
+		case "token":
+			return cmdDomainToken()
 		}
 	}
 	if len(args) == 0 || args[0] != "check" {
 		return fmt.Errorf("usage: ngray domain check <domain> [--ip IP]\n" +
-			"       ngray domain set <domain>          enable CDN fronting for a domain\n" +
+			"       ngray domain token    step-by-step Cloudflare token guide\n" + "       ngray domain set <domain>          enable CDN fronting for a domain\n" +
 			"       ngray domain issue <domain>        issue a Cloudflare Origin cert\n" +
 			"       ngray domain dns <domain> [--ip IP] [--proxied=false]  upsert the A record\n" +
 			"       ngray domain cert <cert.pem> <key.pem>")

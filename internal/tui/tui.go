@@ -76,6 +76,7 @@ const (
 	dfTarget
 	dfToken
 	dfDNS
+	dfCheck // verify DNS/CF reachability (no token needed)
 	dfProceed
 	numDomainFields
 )

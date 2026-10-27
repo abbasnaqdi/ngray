@@ -15,6 +15,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/cf"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
+	"github.com/abbasnaqdi/ng-ray/internal/domain"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
@@ -304,6 +305,55 @@ func taskRegen(ctx context.Context, emit func(string)) error {
 	return nil
 }
 
+// runDomainCheck probes the CURRENT form domain without any CF credentials —
+// DNS resolution, proxied-via-Cloudflare detection, edge status and origin TLS.
+func (m Model) runDomainCheck() (tea.Model, tea.Cmd) {
+	d := m.domain
+	d.hint = validateDomainField(d)
+	if strings.Contains(d.hint, "required") || strings.Contains(d.hint, "doesn't look like a domain") || strings.Contains(d.hint, "missing a TLD") {
+		// Only hard errors block the probe; a Target hint is fine.
+		m.domain = d
+		return m, nil
+	}
+	dom := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(d.domain)), ".")
+	m.domain = d
+	it := item{name: "Domain check", task: func(ctx context.Context, emit func(string)) error {
+		return taskDomainCheck(ctx, emit, dom)
+	}}
+	return m.start(it)
+}
+
+func taskDomainCheck(ctx context.Context, emit func(string), dom string) error {
+	ip := ""
+	if st, err := state.Load(state.Path()); err == nil {
+		ip = st.IP
+	}
+	if ip == "" {
+		ip = system.New().PublicIP(ctx)
+	}
+	emit(dimStyle.Render("• ") + fmt.Sprintf("probing %s …", dom))
+	report := domain.Check(ctx, dom, ip)
+	// Verdict line: colored by outcome.
+	emit(fmt.Sprintf("resolved: %s", strings.Join(resolve(report), ", ")))
+	emit(dimStyle.Render(fmt.Sprintf("edge HTTP %d  ·  origin TLS %v  ·  server=%q",
+		report.EdgeStatus, report.OriginTLSOK, report.ServerHeader)))
+	for _, a := range report.Advice {
+		emit("  ⤷ " + a)
+	}
+	emit("")
+	emit(dimStyle.Render("  hint: `ngray domain check " + dom + " [--ip YOUR.SERVER.IP]` prints the full report any time"))
+	return nil
+}
+
+// resolve never renders empty.
+func resolve(r domain.Report) []string {
+	if len(r.ResolvedIPs) > 0 {
+		return r.ResolvedIPs
+	}
+	return []string{"(none)"}
+}
+
+// returning an inline hint instead of a dead stop at CF-apply time.
 // cfEnsure verifies the CF token, then (re)issues the Origin cert and upserts
 // the DNS A record. Shared by the domain form and the setup wizard's
 // domain-fronting toggle. Token candidate order: explicit override (the form
@@ -421,13 +471,12 @@ func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
 		cfg.Cores.Xray.CDN = cdn
 	}
 
-	if err := cfEnsure(ctx, emit, domain, d.dns, d.cfToken); err != nil {
-		return err
-	}
-
+	// Persist the inputs FIRST: cert/DNS may fail (bad token/quota), but the
+	// domain, target and route must survive so nothing has to be retyped.
 	cdn.Enabled = true
 	cdn.Domain = domain
-	if target := normalizeTarget(strings.TrimSpace(d.target)); target != "" {
+	target := normalizeTarget(strings.TrimSpace(d.target))
+	if target != "" {
 		var kept []config.ProxyRoute
 		for _, r := range cfg.ProxyRoutes {
 			if r.Domain != domain {
@@ -438,6 +487,40 @@ func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
 			Domain: domain, Target: target, CertFile: cdn.CertFile, KeyFile: cdn.KeyFile,
 		})
 		emit(okStyle.Render("✓") + " proxy route " + domain + " → " + target)
+	} else {
+		kept := cfg.ProxyRoutes[:0]
+		for _, r := range cfg.ProxyRoutes {
+			if r.Domain != domain {
+				kept = append(kept, r)
+			}
+		}
+		cfg.ProxyRoutes = kept
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		return err
+	}
+	emit(okStyle.Render("✓") + " saved to config.yml — inputs survive a failure")
+
+	if d.cfToken != "" || cf.TokenFromEnvOrFile() != "" {
+		if err := cfEnsure(ctx, emit, domain, d.dns, d.cfToken); err != nil {
+			return err
+		}
+	} else {
+		// No CF credentials at all: a self-signed origin cert keeps the CF
+		// "Full" (non-strict) path working end-to-end. The DNS record must be
+		// created manually in the dashboard (A → <server IP>, Proxied).
+		emit(warnStyle.Render("! ") + "no CF token — writing a self-signed origin cert instead:")
+		emit(dimStyle.Render("  · set Cloudflare SSL/TLS mode = Full (not Full strict)"))
+		emit(dimStyle.Render("  · the A record must exist and be Proxied (orange cloud)"))
+		sys := system.New()
+		if err := sys.GenSelfSigned(domain, cdn.CertFile, cdn.KeyFile, domain); err != nil {
+			return fmt.Errorf("self-signed origin cert: %w", err)
+		}
+		emit(okStyle.Render("✓") + " self-signed origin cert written → " + cdn.CertFile)
+		emit(dimStyle.Render("  verify later: `ngray domain check " + domain + "`"))
 	}
 	if err := cfg.Validate(); err != nil {
 		return err

@@ -280,20 +280,33 @@ func (m Model) viewDomainForm() string {
 	// form is self-explanatory without leaving the screen.
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(strings.Join([]string{
-		"  ✓ CF token — an API Token (not the Global API Key); it is cached at",
-		"    /etc/ngray/cf_token (0600) and re-prefilled next time.",
-		"  ✓ Domain — the Cloudflare zone holding the A record.",
-		"  ✓ DNS A — creates/updates the proxied A record → your server IP.",
-		"  → Target — optional reverse-proxy behind the same domain, format",
-		"    http://127.0.0.1:PORT. Leave empty if you only need the subscribe link.",
+		"  Domain  — just the name, NO https:// and NO port. Example:",
+		"            vpn.example.com (or www.example.com).",
+		"  CF token — an API Token (40 chars), NOT the Global API Key:",
+		"            dash.cloudflare.com → My Profile → API Tokens →",
+		"            Create Token → Zone · DNS · Edit (+ zone select).",
+		"            Copy the LONG secret, not the Token ID. Cached",
+		"            in /etc/ngray/cf_token (0600) after it verifies.",
+		"            Optional: leave empty → a self-signed origin cert is",
+		"            generated; set SSL/TLS mode = Full in the CF panel.",
+		"  DNS A   — creates/updates the proxied A record → server IP.",
+		"  Target  — optional reverse-proxy for a service (optional),",
+		"            e.g. https://127.0.0.1:8443 — bare host = port 80.",
+		"  Check   — probes DNS + CF edge + origin WITHOUT the token.",
+		"  Apply   — issues cert, writes DNS, installs everything.",
 	}, "\n")) + "\n\n")
 
+	if d.focused == dfCheck {
+		b.WriteString(selStyle.Render("  ❯ Check now (no token — DNS/CF probe)") + "\n")
+	} else {
+		b.WriteString(accentStyle.Render("  › Check now (no token — DNS/CF probe)") + "\n")
+	}
 	if d.focused == dfProceed {
 		b.WriteString(selStyle.Render("  ❯ Apply domain / proxy  ") + "\n")
 	} else {
 		b.WriteString(accentStyle.Render("  › Apply domain / proxy") + "\n")
 	}
-	b.WriteString("\n" + dimStyle.Render("  tab/↑↓ move  ·  enter edit  ·  space toggle  ·  esc back"))
+	b.WriteString("\n" + dimStyle.Render("  tab/↑↓ move  ·  enter edit/run  ·  space toggle  ·  esc back"))
 	return formPanel.Render(b.String())
 }
 
