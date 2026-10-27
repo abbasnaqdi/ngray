@@ -31,15 +31,17 @@ type Subscription struct {
 	KeyFile     string // absolute PEM key path
 	HTTPSPort   int    // HTTPS listening port; 0 = HTTP-only
 	Token       string // required sub-token: any other /s/…/sb/… path 404s
+	PathPorts   []int  // local services exposed by path: <anything>/<PORT>/… → 127.0.0.1:PORT
 }
 
 type Config struct {
-	Port        int
-	Sink        int // loopback default backend (returns 444)
-	Routes      []Route
-	Sub         *Subscription
-	CDNSub      *CDNSub
-	ProxyRoutes []ProxyRoute
+	Port         int
+	Sink         int // loopback default backend (returns 444)
+	Routes       []Route
+	Sub          *Subscription
+	CDNSub       *CDNSub
+	ProxyRoutes  []ProxyRoute
+	IncludeConfD bool // also load /etc/nginx/conf.d/*.conf + sites-enabled in http{} so foreign nginx sites keep running
 }
 
 // CDNSub serves the subscription on a Cloudflare-proxied domain SNI over the
@@ -55,7 +57,17 @@ type CDNSub struct {
 	Dir         string
 	BundleFile  string
 	SingboxFile string
-	Token       string // required sub-token (mirrors Subscription.Token)
+	Token       string    // required sub-token (mirrors Subscription.Token)
+	PathPorts   []int     // path-proxied local services (mirrors Subscription.PathPorts)
+	WSRoutes    []WSRoute // per-SNI WS twins: client wss://DOMAIN/<path> → plain-ws backends
+}
+
+// WSRoute exposes one tunnel backend under a path inside the TLS-wrapped CDNSub
+// server. The config that generated it carries the same path in its inbound
+// settings; this is how every SNI gets a domain-fronted twin.
+type WSRoute struct {
+	Path    string
+	Backend int
 }
 
 // subLocations renders the token-guarded /s/ and /sb/ locations. The capture
@@ -103,6 +115,85 @@ type ProxyRoute struct {
 	CertFile string
 	KeyFile  string
 	Backend  int
+}
+
+// wsLocations renders the WS-twin locations: upgrade-aware plain proxies into
+// the loopback inbounds. ^~ keeps these prefixes regex-free so the /s/ /sb/
+// token locations stay fastest and unshadowed.
+func wsLocations(routes []WSRoute) string {
+	var b strings.Builder
+	for _, w := range routes {
+		fmt.Fprintf(&b, `
+        location ^~ %s {
+            proxy_pass http://127.0.0.1:%d;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+`, w.Path, w.Backend)
+	}
+	return b.String()
+}
+
+// portLocations renders reverse-proxy locations for the local services listed
+// by port. Request /<PORT>/rest is proxied to 127.0.0.1:<PORT>/rest (trailing
+// slashes on both prefix and upstream strip the numeric segment), so a service
+// takes over "http(s)://ANY-CONFIGURED-DOMAIN/20128/dashboard" as
+// "127.0.0.1:20128/dashboard". Useful when a censor blocks arbitrary ports:
+// only 443/80 need to survive. Digit prefixes can never shadow /s/ or /sb/.
+func portLocations(ports []int) string {
+	var b strings.Builder
+	seen := map[int]bool{}
+	for _, p := range ports {
+		if p <= 0 || p == 80 || seen[p] {
+			continue
+		}
+		seen[p] = true
+		fmt.Fprintf(&b, `
+        location = /%d { return 301 /%d/; }
+        location /%d/ {
+            proxy_pass http://127.0.0.1:%d/;
+            proxy_http_version 1.1;
+            proxy_read_timeout 3600s;
+            client_max_body_size 0;   # dashboards upload bigger than the 1m default
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Host $http_host;
+        }
+`, p, p, p, p)
+	}
+	return b.String()
+}
+
+// NormalizePorts keeps unique ports in 1..65535, dropping any that collide with
+// a reserved listener (80, the mux port, the sub HTTPS port…), sorted so the
+// rendered config is stable.
+func NormalizePorts(ports []int, reserved ...int) []int {
+	skip := map[int]bool{80: true}
+	for _, r := range reserved {
+		if r > 0 {
+			skip[r] = true
+		}
+	}
+	seen := map[int]bool{}
+	out := make([]int, 0, len(ports))
+	for _, p := range ports {
+		if p < 1 || p > 65535 || skip[p] || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j] < out[j-1]; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
 }
 
 // Render produces the full nginx.conf.
@@ -162,7 +253,16 @@ events {
     types_hash_max_size 2048;
     server_tokens off;
     access_log off;
-
+`)
+	if c.IncludeConfD {
+		// Sites installed by OTHER projects keep running: their server blocks
+		// (other ports / server_names) coexist with ours via plain nginx rules.
+		b.WriteString(`
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+`)
+	}
+	b.WriteString(`
     server {
         listen 127.0.0.1:`)
 	fmt.Fprintf(&b, "%d default_server;\n        server_name _;\n        return 444;\n    }\n", c.Sink)
@@ -174,9 +274,9 @@ events {
         listen 80;
         server_name _;
         root %s;
-%s        location / { return 444; }
+%s%s        location / { return 444; }
     }
-`, c.Sub.Dir, subLocations(c.Sub))
+`, c.Sub.Dir, subLocations(c.Sub), portLocations(c.Sub.PathPorts))
 
 		// HTTPS on configured port — self-signed TLS; clients must enable skip-cert-verify
 		if c.Sub.CertFile != "" && c.Sub.KeyFile != "" && c.Sub.HTTPSPort > 0 {
@@ -192,9 +292,9 @@ events {
         ssl_session_timeout 10m;
         server_name _;
         root %s;
-%s        location / { return 444; }
+%s%s        location / { return 444; }
     }
-`, c.Sub.HTTPSPort, c.Sub.CertFile, c.Sub.KeyFile, c.Sub.Dir, subLocations(c.Sub))
+`, c.Sub.HTTPSPort, c.Sub.CertFile, c.Sub.KeyFile, c.Sub.Dir, subLocations(c.Sub), portLocations(c.Sub.PathPorts))
 		}
 	}
 
@@ -209,13 +309,13 @@ events {
         ssl_protocols       TLSv1.2 TLSv1.3;
         server_name %s;
         root %s;
-%s        location / { return 404; }
+%s%s%s        location / { return 404; }
     }
 `, c.CDNSub.Backend, c.CDNSub.CertFile, c.CDNSub.KeyFile, c.CDNSub.Domain,
 			c.CDNSub.Dir, subLocations(&Subscription{
 				Dir: c.CDNSub.Dir, BundleFile: c.CDNSub.BundleFile,
 				SingboxFile: c.CDNSub.SingboxFile, Token: c.CDNSub.Token,
-			}))
+			}), wsLocations(c.CDNSub.WSRoutes), portLocations(c.CDNSub.PathPorts))
 	}
 
 	// Reverse proxy routes: each domain gets a loopback TLS server that

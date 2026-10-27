@@ -59,13 +59,21 @@ func newDomainForm(cfg *config.Config) domainForm {
 	if cfg == nil {
 		return d
 	}
-	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Domain != "" {
+	cdn := cfg.Cores.Xray.CDN
+	if cdn != nil && cdn.Domain != "" {
 		d.domain = cdn.Domain
 	}
 	for _, r := range cfg.ProxyRoutes {
 		if d.domain != "" && r.Domain == d.domain && r.Target != "" {
 			d.target = r.Target
 		}
+	}
+	if cdn != nil && len(cdn.PathPorts) > 0 {
+		parts := make([]string, 0, len(cdn.PathPorts))
+		for _, p := range cdn.PathPorts {
+			parts = append(parts, strconv.Itoa(p))
+		}
+		d.paths = strings.Join(parts, ", ")
 	}
 	d.cfToken = cf.TokenFromEnvOrFile() // masked in the view; never echoed
 	return d
@@ -250,8 +258,10 @@ func (m Model) selectItem(it item) (tea.Model, tea.Cmd) {
 var setupRotateSub bool
 
 // clipTarget is the URL the 'y' key copies (OSC 52) when a links sheet is on
-// screen — set by taskLinks/taskSetup, cleared by other tasks.
+// screen — set by taskLinks/taskSetup, cleared by other tasks. clipList holds
+// every URI in sheet order, so number keys / 'a' can copy them precisely.
 var clipTarget string
+var clipList []string
 
 func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.form.editing {
@@ -418,6 +428,9 @@ func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				d.hint = ""
 			case dfTarget:
 				d.target = d.editBuf
+			case dfPaths:
+				d.paths = d.editBuf
+				d.hint = "" // validated in validateDomainField
 			case dfToken:
 				// A clipboard-copied token usually carries the trailing
 				// newline / spaces from the dashboard page; strip it or CF
@@ -458,6 +471,8 @@ func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d.editing, d.editBuf = true, d.domain
 		case dfTarget:
 			d.editing, d.editBuf = true, d.target
+		case dfPaths:
+			d.editing, d.editBuf = true, d.paths
 		case dfToken:
 			d.editing, d.editBuf = true, d.cfToken
 		case dfDNS:
@@ -484,24 +499,60 @@ func validateDomainField(d domainForm) string {
 		return dom + " is missing a TLD — enter the full zone (e.g. example.com)"
 	}
 	t := strings.TrimSpace(d.target)
-	if t == "" {
-		return ""
+	if t != "" {
+		if !strings.HasPrefix(t, "http://") && !strings.HasPrefix(t, "https://") {
+			return "target must start with http:// or https:// — socks only works inside the cores, nginx proxies plain HTTP(S) URLs"
+		}
+		host, port := "", ""
+		if u, err := url.Parse(t); err == nil {
+			host, port = u.Hostname(), u.Port()
+		}
+		if host == "" {
+			return "target URL has no host — e.g. http://127.0.0.1:8443"
+		}
+		if port != "" {
+			if n, err := strconv.Atoi(port); err == nil && (n <= 0 || n > 65535) {
+				return "target port " + port + " is out of range"
+			}
+		}
 	}
-	if !strings.HasPrefix(t, "http://") && !strings.HasPrefix(t, "https://") {
-		return "target must start with http:// or https:// — socks only works inside the cores, nginx proxies plain HTTP(S) URLs"
+	if perr := validatePathPorts(d.paths); perr != "" {
+		return perr
 	}
-	host, port := "", ""
-	if u, err := url.Parse(t); err == nil {
-		host, port = u.Hostname(), u.Port()
+	return ""
+}
+
+// parsePathPorts converts the comma-separated port list into ints.
+func parsePathPorts(s string) []int {
+	var out []int
+	for _, f := range strings.Split(s, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if n, err := strconv.Atoi(f); err == nil {
+			out = append(out, n)
+		}
 	}
-	if host == "" {
-		return "target URL has no host — e.g. http://127.0.0.1:8443"
-	}
-	if port == "" && strings.HasPrefix(t, "http") {
-		return "" // default ports (80/443) are valid proxy_pass targets
-	}
-	if n, err := strconv.Atoi(port); err == nil && (n <= 0 || n > 65535) {
-		return "target port " + port + " is out of range"
+	return out
+}
+
+// validatePathPorts returns an inline hint for a malformed port list.
+func validatePathPorts(s string) string {
+	for _, f := range strings.Split(s, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		n, err := strconv.Atoi(f)
+		switch {
+		case err != nil:
+			return "path ports must be numbers — got " + f
+		case n <= 0 || n > 65535:
+			return "path port out of range: " + f
+		case n == 80:
+			return "path port 80 is the subscription handler itself — pick something else"
+		}
 	}
 	return ""
 }
@@ -546,11 +597,22 @@ func (m Model) updateTask(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Copy the primary subscribe URL with OSC 52 (works over SSH in
 		// modern terminals/tmux with set-clipboard on).
 		if clipTarget != "" && m.clipDone {
-			if err := copyOSC52(clipTarget); err != nil {
-				m.lines = append(m.lines, errStyle.Render("  ✗ clipboard: "+err.Error()))
-			} else {
-				m.lines = append(m.lines, okStyle.Render("  ✓ copied to the system clipboard — paste with ctrl+shift+v"))
-			}
+			m.lines = append(m.lines, m.clip(clipTarget))
+			m.clipDone = false
+		}
+		return m, nil
+	case "a":
+		// Copy the whole sheet: every link, one per line, as plain text.
+		if len(clipList) > 0 && m.clipDone {
+			m.lines = append(m.lines, m.clip(strings.Join(clipList, "\n")))
+			m.clipDone = false
+		}
+		return m, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		// Copy sheet entry N exactly, with no dependence on line wrapping.
+		n := int(msg.String()[0] - '1')
+		if n < len(clipList) && m.clipDone {
+			m.lines = append(m.lines, m.clip(clipList[n]))
 			m.clipDone = false
 		}
 		return m, nil
@@ -560,6 +622,17 @@ func (m Model) updateTask(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.vp, cmd = m.vp.Update(msg)
 	return m, cmd
+}
+
+// clip copies text via OSC 52 and reports the per-line feedback.
+func (m Model) clip(text string) string {
+	if len(text) > 100_000 {
+		return errStyle.Render("  ✗ clipboard: text too long for OSC 52 (" + fmt.Sprint(len(text)) + " bytes)")
+	}
+	if err := copyOSC52(text); err != nil {
+		return errStyle.Render("  ✗ clipboard: " + err.Error())
+	}
+	return okStyle.Render("  ✓ copied to the system clipboard — paste with ctrl+shift+v")
 }
 
 func (m Model) start(it item) (tea.Model, tea.Cmd) {
@@ -575,6 +648,7 @@ func (m Model) start(it item) (tea.Model, tea.Cmd) {
 	m.taskCh, m.cancel = ch, cancel
 	m.screen, m.taskName, m.running, m.lines, m.taskErr = screenTask, it.name, true, nil, nil
 	clipTarget = "" // a fresh task clears the copy target; taskLinks re-sets it
+	clipList = nil
 	m.clipDone = true
 	m.vp.SetContent("")
 	emit := func(s string) { ch <- taskLine(s) }

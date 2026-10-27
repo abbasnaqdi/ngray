@@ -27,6 +27,7 @@ type Plan struct {
 // Result is what a core contributes to the deployment.
 type Result struct {
 	Routes    []nginx.Route     // SNI -> backend (empty for independent cores)
+	CDNWS     []nginx.WSRoute   // loopback WS backends exposed under the CDN domain
 	Endpoints []links.Endpoint  // client share configs
 	Notes     map[string]string // out-of-band info (e.g. mieru client JSON)
 }

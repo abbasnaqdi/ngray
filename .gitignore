@@ -7,7 +7,7 @@
 /pkg/
 
 # Runtime state and generated output
-proxy-state.json
+proxy-state.json*
 config.yml
 sub.txt
 *_clean.txt

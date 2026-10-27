@@ -76,6 +76,7 @@ type setupForm struct {
 const (
 	dfDomain = iota
 	dfTarget
+	dfPaths // path-proxied ports: example.com/<port>/…
 	dfToken
 	dfDNS
 	dfCheck // verify DNS/CF reachability (no token needed)
@@ -87,6 +88,7 @@ const (
 type domainForm struct {
 	domain  string
 	target  string
+	paths   string // comma-separated ports exposed as /<port>/… on the domain
 	cfToken string
 	dns     bool
 	focused int

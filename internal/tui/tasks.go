@@ -18,6 +18,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/domain"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
+	"github.com/abbasnaqdi/ng-ray/internal/nginx"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
@@ -185,46 +186,49 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	if d == nil {
 		return fmt.Errorf("no deployment found — run Server setup first")
 	}
-	clipTarget = ""
 
-	emit(titleStyle.Render("Subscribe") + dimStyle.Render("  (y copies the primary link)"))
-	emit("")
+	// PURE link sheet: one URI per line, nothing else cluttering the view.
+	// Copying never relies on mouse-dragging a wrapped line (terminal wrap
+	// corrupts URIs): digits copy link N, 'a' copies everything, 'y' primary.
+	clipTarget = ""
+	clipList = clipList[:0]
+
+	// Cloudflare-fronted subscribe URLs first — the primary ones.
+	var subs []string
 	if d.SubDomainURL != "" {
-		emit("  " + keyStyle.Render("base64  ") + okStyle.Render(d.SubDomainURL))
-		clipTarget = d.SubDomainURL
+		subs = append(subs, d.SubDomainURL)
 	}
 	if d.SubDomainSingboxURL != "" {
-		emit("  " + keyStyle.Render("sbJSON  ") + okStyle.Render(d.SubDomainSingboxURL))
+		subs = append(subs, d.SubDomainSingboxURL)
 	}
 	if d.SubHTTPURL != "" {
-		emit("  " + keyStyle.Render("http    ") + okStyle.Render(d.SubHTTPURL))
+		subs = append(subs, d.SubHTTPURL)
 	}
 	if d.SubURL != "" {
-		emit("  " + keyStyle.Render("https   ") + okStyle.Render(d.SubURL))
+		subs = append(subs, d.SubURL)
 	}
-	if fp := d.SubCertFingerprint; fp != "" {
-		emit(dimStyle.Render("  https uses the self-signed cert: pinSHA256=" + fp[:24] + "… (clients verify)"))
-	}
-	emit("")
-
-	// Individual share links — bare URIs, one per line, so a terminal mouse
-	// drag (or editor paste) grabs exactly the URL. Grouped by protocol for
-	// readability; the SNI of each config is visible inside the URI itself.
-	emit(keyStyle.Render("Endpoints") + dimStyle.Render("  ("+fmt.Sprint(countLinks(d.Endpoints))+" — one URI per line)"))
+	// Endpoints, domain-fronted configs first, then direct-IP.
+	var domainLinks, directLinks []string
 	for _, e := range d.Endpoints {
-		if u := e.URI(); u != "" {
-			emit(u)
+		u := e.URI()
+		if u == "" {
+			continue
+		}
+		if e.Proto == "vless-ws-tls" || e.Proto == "vless-xhttp-tls" {
+			domainLinks = append(domainLinks, u)
+		} else {
+			directLinks = append(directLinks, u)
 		}
 	}
-	emit("")
+	clipList = append(clipList, subs...)
+	clipList = append(clipList, domainLinks...)
+	clipList = append(clipList, directLinks...)
+	clipTarget = clipList[0]
 
-	if n := len(d.Notes); n > 0 {
-		emit(keyStyle.Render("Extras"))
-		for k := range d.Notes {
-			emit("  " + k)
-		}
-		emit("")
-		emit(dimStyle.Render("  (raw configs: ngray client links)"))
+	emit(keyStyle.Render("① y = copy primary") + dimStyle.Render("  ·  a = copy all  ·  1-9 = copy that one  ·  drag unwrapped lines as-is"))
+	emit("")
+	for _, u := range clipList {
+		emit(u)
 	}
 	return nil
 }
@@ -635,6 +639,19 @@ func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
 		}
 		cfg.ProxyRoutes = kept
 	}
+	// Path-proxied local services: example.com/<PORT>/… reverses back into
+	// 127.0.0.1:<PORT> — a censor can block the port, but not the 443 path.
+	paths := nginx.NormalizePorts(parsePathPorts(d.paths), cfg.Nginx.Port, cfg.Subscription.HTTPSPort, 8444)
+	if prev := cdn.PathPorts; !intsEqual(prev, paths) {
+		if len(paths) > 0 {
+			emit(okStyle.Render("✓") + " path proxy " + domain + "/" + fmt.Sprint(paths[0]) + "/… → 127.0.0.1:" + fmt.Sprint(paths[0]))
+		}
+		cdn.PathPorts = paths
+	}
+
+	// Make the ports survive a setup that re-reads config.yml: the sub servers
+	// read the CDN list too (single source of truth).
+	cfg.Cores.Xray.CDN = cdn
 	// The fronting domain must never sit in a core's REALITY/XHTTP SNI list —
 	// nginx routes one SNI to one backend and duplicates fail validation.
 	if gone := cfg.StripCDNSNIs(domain); len(gone) > 0 {
@@ -886,4 +903,17 @@ func candidatesPath() string {
 		return "/etc/ngray/snis/candidates.sni"
 	}
 	return rel
+}
+
+// intsEqual compares two int slices by value.
+func intsEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

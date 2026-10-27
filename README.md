@@ -79,6 +79,17 @@ No single VPS IP reliably crosses both MCI and Irancell at the same time. MCI us
 
 **SNI pairing strategy**: `www.rust-lang.org` and `rust-lang.org` are different nginx routing keys — both pass REALITY fitness. This doubles coverage: the www variant routes to xray (Vision), the non-www routes to shoes (AnyTLS, Rust fingerprint).
 
+**Newer protocol candidates — verified 2026 assessment** (kept out of the core set on purpose; every entry below was checked against its project, not folklore):
+
+- **juicity** — QUIC proxy in the same family as TUIC/Hysteria2; the Go implementation has not seen a release for years (a community Rust rewrite appeared in 2026). Hysteria2 supersedes it feature-for-feature, so it adds no fingerprint diversity. ✗ skipped.
+- **naive (NaïveProxy)** — genuinely probe-resistant, but its server needs the patched *Caddy + forwardproxy plugin* — a second full web server next to nginx for one credential shape. ✓ concept, ✗ skipped (operational cost > value alongside REALITY/XHTTP).
+- **snell v5/v6** — sing-box can now serve it, but the client ecosystem is split (Clash-family uses v4, sing-box only v5+); without a verified client on the sender side a server would hand out dead configs. ⏸ re-check when the client side settles.
+- **trusttunnel** (HTTP/2+HTTP/3 tunnel) — promising and young; supported only in mihomo 1.19+ and custom sing-box forks, no distribution-track server binary. ⏸ watch.
+- **MASQUE** (HTTP/3 CONNECT-IP) — the one verified 2026 addition: sing-box 1.14 (Oct 2026) ships client *and* server endpoints, mobile clients are adding it right now. ⏸ planned: enable as a sing-box inbound once the client apps you use support it.
+- **XHTTP via Cloudflare** (`cdn.xhttp: true`) — packet-up/GET-mode XHTTP is designed for CDN traversal, but CF Free response-buffering historically breaks it; Flask-free configs keep it opt-in until *your* `domain check` + client test proves it on your free plan.
+
+What ngray does keep verified-current in 2026: Xray 26.x warns that **plain WS is deprecated** — nginx-hide XHTTP is the recommended direct path (already generated), REALITY RST-floods from Iran's DPS are answered by SNI rotation + the CDN twins, and sing-box 1.14.4 is the deployed core (ngray pins/updates it).
+
 The detailed reasoning is in [docs/protocols.md](docs/protocols.md) and [docs/research-iran-dpi.md](docs/research-iran-dpi.md).
 
 ---
@@ -240,6 +251,8 @@ Generated links import into:
 
 Add one URL in any app; all configs appear and auto-update, and the sing-box `auto` group health-checks every endpoint so dead ones are skipped automatically. **mieru has no share-link URI**, so it rides only the **sing-box JSON** bundle (`/sb/`) — import that one in NekoBox/husi to get it. The raw mieru JSON is also printed by `client links` for the standalone mieru app.
 
+**Endpoint pairs:** every SNI is served as a **pair** — one direct-IP link (`<core>-…-<sni>`) and one Cloudflare-fronted twin (`cf-ws-<sni>` on `https://www.DOMAIN/…`, no port, trusted cert). The TUI menu 2 is a pure link sheet: one URI per line, **no visual wrapping**; copying never depends on dragging wrapped text — `y` copies the primary link, `a` copies every link on the sheet, `1`–`9` copy exact entries (all via OSC 52, over SSH too). The plain-CLI `ngray client links` prints the same sheet unwrapped for scrollback copying.
+
 ---
 
 ## Configuration
@@ -288,6 +301,13 @@ without huge collateral), and CF proxies to your origin. Configure a domain unde
   the config that survives a direct-IP block.
 - **The subscription** on `www.DOMAIN` — served on 443 via Cloudflare, so the
   subscribe URL has no port, a trusted cert, and a hidden origin IP.
+- **A domain twin for every route SNI** — the domain+IP pairing rule: for each
+  REALITY/XHTTP SNI there is one direct-IP config *and* one `cf-ws-<sni>` config
+  on `https://www.DOMAIN/t/<token>/<fp>` (plain WS behind the nginx TLS server,
+  rotating together with the subscription token). When Iran's DPI starts
+  RST-flooding a REALITY handshake or the VPS IP is blocked, the twin still
+  carries the same SNI's traffic. UDP cores (Hysteria2/TUIC/mieru) cannot ride
+  Cloudflare — they stay direct-IP.
 
 What can and cannot traverse Cloudflare:
 
@@ -295,7 +315,36 @@ What can and cannot traverse Cloudflare:
 - ❌ **REALITY** — no. CF terminates TLS at its edge, breaking REALITY's
   origin-handshake authentication. REALITY stays direct-IP only.
 - ❌ **Hysteria2 / TUIC (UDP/QUIC)** — no. CF doesn't proxy arbitrary UDP.
-- ❌ **XHTTP / SplitHTTP** — not on Free (CF buffers responses); use WS.
+- ❌ **XHTTP / SplitHTTP** — not guaranteed on Free (CF response buffering);
+  opt-in testable: `cores.xray.cdn.xhttp: true` adds a VLESS+XHTTP inbound on
+  `www.DOMAIN` behind the same 443 mux (nginx hides the xray fingerprint, which
+  is what the Xray project recommends). Verified by your own `domain check` +
+  client test: if it 502s through CF, stay on the WS route.
+
+### Reach services by path (no extra ports)
+
+Censors block arbitrary ports, so anything not on 443/80 can become unreachable
+from inside Iran. Add your project ports under `cores.xray.cdn.path_ports`
+(with the TUI form: *Domain / proxy → Path ports*) and every one of them comes
+up as a PATH on the domain, plus works with and WITHOUT Cloudflare:
+
+```yaml
+cores:
+  xray:
+    cdn:
+      enabled: true
+      domain: example.org
+      ws: true
+      path_ports: [20128, 3000]   # also editable in the TUI domain form
+```
+
+- `http://example.org/20128/dashboard` → `http://127.0.0.1:20128/dashboard`
+- `https://www.example.org/20128/dashboard` → same service over TLS
+- Trailing-slash redirect included (`/20128` → `/20128/`), requests carry the
+  real client IP (`X-Real-IP`, `X-Forwarded-For`) and the original `Host`.
+- Ports 80, 443, the mux port and the sub HTTPS port are rejected — digit
+  prefixes can never shadow the `/s/` and `/sb/` subscription routes (those are
+  regex locations and always win over prefix locations in nginx).
 
 Setup (one-time):
 

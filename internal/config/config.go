@@ -75,6 +75,7 @@ type CDN struct {
 	Enabled   bool   `yaml:"enabled"`
 	Domain    string `yaml:"domain"`               // WS SNI, e.g. example.com
 	AltDomain string `yaml:"alt_domain,omitempty"` // XHTTP SNI; default "www."+Domain
+	PathPorts []int  `yaml:"path_ports,omitempty"` // reverse-proxy local services by PATH: example.com/<port>/…
 	WS        bool   `yaml:"ws"`
 	XHTTP     bool   `yaml:"xhttp"`
 	CertFile  string `yaml:"cert_file"`

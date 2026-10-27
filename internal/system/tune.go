@@ -42,7 +42,10 @@ var tuning = map[string]string{
 	"net.ipv4.tcp_notsent_lowat": "16384",
 }
 
-// EnableBBR persists the tuning table and reloads sysctl.
+// EnableBBR persists the tuning table and reloads sysctl. It then re-reads the
+// ACTIVE congestion control: /etc/sysctl.conf is applied after sysctl.d files,
+// so another package's line there can silently override this file — in that
+// case the error names the override so operator tuning stays verifiable.
 // NOTE: tcp_fastopen is intentionally excluded — it causes middlebox drops
 // and DPI fingerprinting on Iranian/Chinese carrier networks.
 func (e *Env) EnableBBR(ctx context.Context) error {
@@ -54,8 +57,17 @@ func (e *Env) EnableBBR(ctx context.Context) error {
 	if err := e.WriteString(sysctlFile, b.String(), 0o644); err != nil {
 		return err
 	}
-	_, err := e.Run(ctx, "sysctl", "--system")
-	return err
+	if _, err := e.Run(ctx, "sysctl", "--system"); err != nil {
+		return err
+	}
+	cc, _ := e.Run(ctx, "sysctl", "-n", "net.ipv4.tcp_congestion_control")
+	if strings.TrimSpace(cc) != "bbr" {
+		return fmt.Errorf(`BBR did not activate: sysctl reports %q.
+Another sysctl source overrides %s — check /etc/sysctl.conf and
+/etc/sysctl.d/* for tcp_congestion_control lines; 99-ngray.conf is reliable
+only when nothing else sets the key last`, cc, sysctlFile)
+	}
+	return nil
 }
 
 // EnableIPForward turns on IPv4 forwarding (needed by TUN-style cores).

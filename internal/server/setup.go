@@ -121,6 +121,19 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	plan := &cores.Plan{Cfg: cfg, St: st, Alloc: ports.NewAllocator(st), Sys: sys, IP: ip}
 	var routes []nginx.Route
+	var cdnws []nginx.WSRoute
+
+	// Path-proxied local services: example.com/<PORT>/… reaches a dashboard or
+	// other project that would otherwise be unreachable when a censor blocks
+	// arbitrary ports. Only circular ports / the sub HTTPS port are rejected —
+	// nginx digit prefixes can never shadow the /s/ token routes.
+	var pathPorts []int
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil {
+		pathPorts = nginx.NormalizePorts(cdn.PathPorts, cfg.Nginx.Port, cfg.Subscription.HTTPSPort, 8444)
+	}
+	if len(pathPorts) > 0 {
+		o.log("path proxy: %v → example.com/<port>/… (ports blocked by your ISP? use the domain path)", pathPorts)
+	}
 	var endpoints []links.Endpoint
 	notes := map[string]string{}
 	var subToken string
@@ -148,6 +161,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 			return nil, fmt.Errorf("configure %s: %w", core.Name(), err)
 		}
 		routes = append(routes, res.Routes...)
+		cdnws = append(cdnws, res.CDNWS...)
 		endpoints = append(endpoints, res.Endpoints...)
 		for k, v := range res.Notes {
 			notes[k] = v
@@ -217,6 +231,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 			KeyFile:     sub.KeyFile,
 			HTTPSPort:   httpsPort,
 			Token:       token,
+			PathPorts:   pathPorts,
 		}
 		deploy.SubURL = sub.HTTPSURL(ip, token, httpsPort)
 		deploy.SubHTTPURL = sub.URL(ip, token)
@@ -245,7 +260,9 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 					Domain: subDomain, Backend: subBackend,
 					CertFile: cdn.CertFile, KeyFile: cdn.KeyFile,
 					Dir: sub.Dir, BundleFile: "bundle", SingboxFile: "singbox-bundle.json",
-					Token: token,
+					Token:     token,
+					PathPorts: pathPorts,
+					WSRoutes:  cdnws,
 				}
 				deploy.SubDomainURL = "https://" + subDomain + "/s/" + token
 				deploy.SubDomainSingboxURL = "https://" + subDomain + "/sb/" + token
@@ -289,9 +306,10 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 
 	if cfg.Server.EnableBBR {
 		if err := sys.EnableBBR(ctx); err != nil {
-			o.log("warning: BBR tuning failed: %v", err)
+			o.log("warning: BBR tuning not verified: %v", err)
+		} else {
+			st.BBR = true
 		}
-		st.BBR = true
 	}
 
 	restartServices(ctx, sys, cfg, o)
@@ -392,18 +410,29 @@ func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options)
 			}
 		}
 	}
+	// When other projects dropped server blocks in the stock include dirs, keep
+	// loading them so our takeover does not (further) disturb their setup.
+	if site, _ := sys.Run(ctx, "sh", "-c", "ls /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null | head -n1"); site != "" {
+		c.IncludeConfD = true
+		o.log("external nginx sites detected (%s) — included, they keep running", strings.TrimSpace(site))
+	}
 	if err := sys.WriteString(nginx.ConfPath, c.Render(), 0o644); err != nil {
 		return err
 	}
-	if out, err := sys.Run(ctx, "nginx", "-t"); err != nil {
+	rollback := func(reason string) {
 		if hadPrev {
 			_ = sys.WriteFile(nginx.ConfPath, prev, 0o644)
-			o.log("nginx -t failed; restored the previous nginx.conf")
+			_ = sys.Restart(ctx, "nginx") // bring the previous config back up untouched
+			o.log("restored the previous nginx.conf (%s)", reason)
 		}
+	}
+	if out, err := sys.Run(ctx, "nginx", "-t"); err != nil {
+		rollback("nginx -t failed")
 		return fmt.Errorf("nginx -t failed: %s", out)
 	}
 	o.log("nginx.conf written and validated")
 	if err := sys.Restart(ctx, "nginx"); err != nil {
+		rollback("restart failed")
 		if b, rerr := sys.ReadFile("/var/log/nginx/error.log"); rerr == nil {
 			lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 			if n := len(lines); n > 10 {
@@ -444,9 +473,9 @@ func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st 
 		}
 		r.TCP = append(r.TCP, sub.HTTPPort, httpsPort)
 	}
-	for _, p := range st.Ports {
-		r.TCP = append(r.TCP, p)
-	}
+	// st.Ports are LOOPBACK backends (127.0.0.1, band 11000-13999) —
+	// deliberately NOT opened on the firewall: loopback is already accepted, and
+	// listing ~90 ports in INPUT rules was noise for the operator.
 	if cfg.Cores.Hysteria2.Enabled {
 		h := cfg.Cores.Hysteria2
 		r.UDP = append(r.UDP, h.Port)

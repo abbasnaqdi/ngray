@@ -2,10 +2,13 @@ package cores
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -197,6 +200,43 @@ func (Xray) Build(p *Plan) (Result, error) {
 		}
 	}
 
+	// Domain+IP pairing: every route SNI also gets a CF-fronted WS TWIN —
+	// a client config over https://DOMAIN/… with a fresh UUID, served by the
+	// www-domain TLS server (XHTTPDomain) as a plain-ws loopback backend. When
+	// the censor blocks the VPS IP or starts RST-flooding a REALITY SNI (Iran
+	// 2026 behaviour), the twin still carries the same SNI's traffic.
+	if cdn := p.Cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.WS && cdn.Domain != "" &&
+		fileExists(cdn.CertFile) && fileExists(cdn.KeyFile) {
+		alt := cdn.XHTTPDomain()
+		seenSNI := map[string]bool{}
+		for _, sni := range p.Cfg.RouteSNIs() {
+			if sni == "" || seenSNI[sni] {
+				continue
+			}
+			seenSNI[sni] = true
+			cid := id("xray", "twin", sni)
+			port, err := p.Alloc.Backend("xray", cid)
+			if err != nil {
+				return Result{}, err
+			}
+			uid, path := uuid(p.St, cid), twinPath(p.St, sni)
+			inbounds = append(inbounds, map[string]any{
+				"listen": "127.0.0.1", "port": port, "protocol": "vless",
+				"settings": map[string]any{"clients": []map[string]any{{"id": uid}}, "decryption": "none"},
+				"streamSettings": map[string]any{
+					"network": "ws", "security": "none",
+					"wsSettings": map[string]any{"path": path, "host": alt},
+				},
+				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
+			})
+			res.CDNWS = append(res.CDNWS, nginx.WSRoute{Path: path, Backend: port})
+			res.Endpoints = append(res.Endpoints, links.Endpoint{
+				Tag: links.Tag("cf", "ws", sni), Proto: "vless-ws-tls",
+				Server: alt, Port: 443, SNI: alt, UUID: uid, Path: path,
+			})
+		}
+	}
+
 	cfg := map[string]any{
 		"log":       map[string]any{"loglevel": "warning"},
 		"inbounds":  inbounds,
@@ -213,4 +253,12 @@ func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func xhttpPath(st *state.State, cid string) string {
 	return "/" + st.Secret(cid+"|path", func() state.Secret { return state.Secret{Password: state.RandHex(6)} }).Password
+}
+
+// twinPath derives a stable WS path for a route-SNI twin: /t/<sub-token>/<sni
+// fingerprint>. Tying the prefix to the subscription token means a token
+// rotation (or link-rotation) also kills every previously exported twin link.
+func twinPath(st *state.State, sni string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSuffix(sni, "."))))
+	return "/t/" + st.EnsureSubToken() + "/" + hex.EncodeToString(sum[:])[:12]
 }

@@ -268,6 +268,7 @@ func (m Model) viewDomainForm() string {
 
 	b.WriteString(row(dfDomain, "Domain", dash(d.domain), "enter to edit — punycode is fine", d.editing) + "\n")
 	b.WriteString(row(dfTarget, "Target", dash(d.target), "enter to edit — optional", d.editing) + "\n")
+	b.WriteString(row(dfPaths, "Path ports", dash(d.paths), "enter to edit — e.g. 20128, 3000", d.editing) + "\n")
 	tok := "—"
 	if d.cfToken != "" {
 		tok = maskToken(d.cfToken)
@@ -300,8 +301,12 @@ func (m Model) viewDomainForm() string {
 		"            Optional: leave empty → a self-signed origin cert is",
 		"            generated; set SSL/TLS mode = Full in the CF panel.",
 		"  DNS A   — creates/updates the proxied A record → server IP.",
-		"  Target  — optional reverse-proxy for a service (optional),",
+		"  Target  — optional reverse-proxy for a host-SNI route (optional),",
 		"            e.g. https://127.0.0.1:8443 — bare host = port 80.",
+		"  Path ports — comma list; each port becomes a PATH on this domain:",
+		"            20128 → https://DOMAIN/20128/dashboard reaches the service",
+		"            at 127.0.0.1:20128/dashboard. Censors block ports; the 443",
+		"            path keeps working (works with and without Cloudflare).",
 		"  Check   — probes DNS + CF edge + origin WITHOUT the token.",
 		"  Apply   — issues cert, writes DNS, installs everything.",
 	}, "\n")) + "\n\n")
@@ -349,7 +354,7 @@ func (m Model) viewTask() string {
 	body := taskPanel.Width(maxInt(m.width-4, 20)).Render(strings.TrimRight(m.vp.View(), "\n"))
 	foot := mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  q quit")
 	if clipTarget != "" {
-		foot = mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  y copy primary link  ·  q quit")
+		foot = mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  y primary  ·  a all  ·  1-9 copy one  ·  q quit")
 	}
 	foot += "  " + dimStyle.Render("v"+version.Version)
 	if m.restartAfter && m.taskErr == nil {
@@ -382,9 +387,31 @@ func (m Model) joinWrapped() string {
 	}
 	out := make([]string, 0, len(m.lines))
 	for _, l := range m.lines {
+		// URIs must never wrap: a visual line-break would end up inside a
+		// mouse-dragged copy, corrupting the link. Long but unwrapped lines
+		// scroll horizontally in the viewport instead.
+		if wrapped := unwrappable(l); wrapped {
+			out = append(out, l)
+			continue
+		}
 		out = append(out, wrapLineSoft(l, w))
 	}
 	return joinLines(out)
+}
+
+// unwrappable reports lines whose content loses meaning when broken: share
+// links, subscribe URLs and anything else that looks like a URL with a scheme.
+func unwrappable(s string) bool {
+	t := strings.TrimLeft(s, " ")
+	for _, scheme := range []string{
+		"vless://", "vmess://", "trojan://", "anytls://", "hysteria2://", "hysteria://",
+		"tuic://", "ss://", "socks5://", "snell://", "http://", "https://", "sb://",
+	} {
+		if strings.HasPrefix(t, scheme) {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapWords wraps s at word boundaries to width, keeping any leading spaces of
