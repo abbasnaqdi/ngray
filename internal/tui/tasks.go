@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/abbasnaqdi/ng-ray/internal/cf"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
@@ -56,6 +59,9 @@ func buildItems() []item {
 		{key: "8", name: "Doctor",
 			desc: "Diagnose cores, nginx ownership, BBR and any foreign panels (x3-ui etc. are left untouched).",
 			task: taskDoctor},
+		{key: "p", name: "Domain / proxy",
+			desc:         "Put a domain in front of the subscription and/or a service: Cloudflare Origin cert, DNS A record, reverse proxy. Token is cached in /etc/ngray/cf_token.",
+			domainBefore: true},
 		{key: "9", name: "Regenerate credentials",
 			desc: "Clear all keys, secrets and the subscribe token so the next setup regenerates them.",
 			task: taskRegen},
@@ -251,6 +257,150 @@ func taskRegen(ctx context.Context, emit func(string)) error {
 	}
 	emit(okStyle.Render("✓ cleared — run Server setup to regenerate"))
 	return nil
+}
+
+// taskDomain applies the domain/proxy form: caches the Cloudflare token,
+// issues an Origin cert, upserts the DNS record, writes config.yml and then
+// runs the normal server setup.
+func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
+	domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d.domain)), ".")
+	if domain == "" {
+		return fmt.Errorf("domain is required")
+	}
+	cfg, err := config.LoadOrDefault(config.Path())
+	if err != nil {
+		return err
+	}
+	cdn := cfg.Cores.Xray.CDN
+	if cdn == nil {
+		cdn = &config.CDN{CertFile: "/etc/ngray/cf-origin.crt", KeyFile: "/etc/ngray/cf-origin.key", WS: true}
+		cfg.Cores.Xray.CDN = cdn
+	}
+
+	if d.cfToken != "" {
+		if os.Geteuid() != 0 {
+			emit(badge.Render("sandbox") + " CF token needs root to cache in /etc/ngray/cf_token")
+		} else if err := writeAtomic("/etc/ngray/cf_token", []byte(d.cfToken), 0o600); err != nil {
+			emit(dimStyle.Render("• ") + "warning: could not cache CF token: " + err.Error())
+		} else {
+			emit(okStyle.Render("✓") + " cached CF token in /etc/ngray/cf_token")
+		}
+	}
+	token := d.cfToken
+	if token == "" {
+		token = cf.TokenFromEnvOrFile()
+	}
+
+	if token != "" {
+		c := cf.New(token)
+		emit(dimStyle.Render("• ") + "verifying Cloudflare token…")
+		if err := c.VerifyToken(ctx); err != nil {
+			return fmt.Errorf("Cloudflare token rejected: %w", err)
+		}
+		emit(okStyle.Render("✓") + " token valid")
+		emit(dimStyle.Render("• ") + "requesting Cloudflare Origin certificate…")
+		certPEM, keyPEM, err := c.IssueOriginCert(ctx, domain)
+		if err != nil {
+			return err
+		}
+		if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
+			return fmt.Errorf("Cloudflare returned a mismatched cert/key: %w", err)
+		}
+		if err := writeAtomic(cdn.KeyFile, keyPEM, 0o600); err != nil {
+			return err
+		}
+		if err := writeAtomic(cdn.CertFile, certPEM, 0o644); err != nil {
+			return err
+		}
+		emit(okStyle.Render("✓") + " Origin certificate installed")
+
+		if d.dns {
+			ip := ""
+			if st, err := state.Load(state.Path()); err == nil {
+				ip = st.IP
+			}
+			if ip == "" {
+				ip = system.New().PublicIP(ctx)
+			}
+			if ip == "" {
+				emit(dimStyle.Render("• ") + "could not detect server IP; skipping DNS record")
+			} else if err := c.EnsureARecord(ctx, domain, ip, true); err != nil {
+				emit(warnStyle.Render("! ") + "DNS record: " + err.Error())
+			} else {
+				emit(okStyle.Render("✓") + " DNS A " + domain + " → " + ip + " (proxied)")
+			}
+		}
+	} else {
+		emit(warnStyle.Render("! ") + "no Cloudflare token — skipping cert/DNS (use an existing cert or set the token)")
+	}
+
+	cdn.Enabled = true
+	cdn.Domain = domain
+	if target := strings.TrimSpace(d.target); target != "" {
+		if !(strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://")) {
+			return fmt.Errorf("target must start with http:// or https://")
+		}
+		var kept []config.ProxyRoute
+		for _, r := range cfg.ProxyRoutes {
+			if r.Domain != domain {
+				kept = append(kept, r)
+			}
+		}
+		cfg.ProxyRoutes = append(kept, config.ProxyRoute{
+			Domain: domain, Target: target, CertFile: cdn.CertFile, KeyFile: cdn.KeyFile,
+		})
+		emit(okStyle.Render("✓") + " proxy route " + domain + " → " + target)
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		return err
+	}
+	emit("")
+	emit(dimStyle.Render("• ") + "applying (nginx + services)…")
+	dpl, err := server.Setup(ctx, server.Options{
+		ConfigPath:     config.Path(),
+		StatePath:      state.Path(),
+		CandidatesPath: candidatesPath(),
+		Sandbox:        os.Geteuid() != 0,
+		Confirm:        func(string) bool { return true },
+		Log:            func(f string, a ...any) { emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return err
+	}
+	emit("")
+	emit(okStyle.Render(fmt.Sprintf("✓ applied — %s is live (%d endpoint(s))", domain, len(dpl.Endpoints))))
+	if dpl.SubDomainURL != "" {
+		emit("  subscribe  " + okStyle.Render(dpl.SubDomainURL))
+	}
+	return nil
+}
+
+// writeAtomic writes data via a temp file + rename and tightens the mode.
+func writeAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".ngray-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 // helpers ------------------------------------------------------------------

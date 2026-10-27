@@ -35,6 +35,7 @@ var (
 	disStyle    = lipgloss.NewStyle().Foreground(colorMuted)
 	okStyle     = lipgloss.NewStyle().Foreground(colorOK)
 	errStyle    = lipgloss.NewStyle().Foreground(colorErr)
+	warnStyle   = lipgloss.NewStyle().Foreground(colorWarn)
 	spinStyle   = lipgloss.NewStyle().Foreground(colorAccent)
 	badge       = lipgloss.NewStyle().Foreground(colorWarn)
 
@@ -49,6 +50,8 @@ func (m Model) View() string {
 		return m.viewTask()
 	case screenSetupForm:
 		return m.viewSetupForm()
+	case screenDomainForm:
+		return m.viewDomainForm()
 	default:
 		return m.viewMenu()
 	}
@@ -198,6 +201,75 @@ func formToggleRow(focused bool, label string, on bool) string {
 		return keyStyle.Render("▶") + accentStyle.Render(lbl) + check + status
 	}
 	return " " + mutedStyle.Render(lbl) + check + status
+}
+
+// ── Domain / proxy form ───────────────────────────────────────────────────────
+
+func (m Model) viewDomainForm() string {
+	d := m.domain
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("Domain / proxy") + "\n")
+	b.WriteString(dimStyle.Render("serve the subscription and/or a service behind a trusted domain") + "\n\n")
+
+	row := func(idx int, label, val, hint string, editing bool) string {
+		focused := d.focused == idx
+		marker := "    "
+		if focused {
+			marker = "  ❯ "
+		}
+		lbl := fmt.Sprintf("%-10s", label)
+		if focused && editing {
+			return marker + accentStyle.Render(lbl) + accentStyle.Render(d.editBuf+"█")
+		}
+		if focused {
+			return marker + accentStyle.Render(lbl) + textStyle.Render(val) + dimStyle.Render("  "+hint)
+		}
+		return marker + dimStyle.Render(lbl) + textStyle.Render(val)
+	}
+
+	b.WriteString(row(dfDomain, "Domain", dash(d.domain), "enter to edit", d.editing) + "\n")
+	b.WriteString(row(dfTarget, "Target", dash(d.target), "enter to edit (optional)", d.editing) + "\n")
+	tok := "—"
+	if d.cfToken != "" {
+		tok = maskToken(d.cfToken)
+	}
+	b.WriteString(row(dfToken, "CF token", tok, "enter to edit (optional)", d.editing) + "\n")
+
+	dnsMark := "○ disabled"
+	if d.dns {
+		dnsMark = "● enabled"
+	}
+	if d.focused == dfDNS {
+		b.WriteString("  ❯ " + accentStyle.Render(fmt.Sprintf("%-10s", "DNS A")) + okStyle.Render(dnsMark) + "\n")
+	} else {
+		b.WriteString("    " + dimStyle.Render(fmt.Sprintf("%-10s", "DNS A")) + textStyle.Render(dnsMark) + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  leave CF token empty to keep an existing cert") + "\n")
+	b.WriteString("\n")
+	if d.focused == dfProceed {
+		b.WriteString(selStyle.Render("  ❯ Apply domain / proxy  ") + "\n")
+	} else {
+		b.WriteString(accentStyle.Render("  › Apply domain / proxy") + "\n")
+	}
+	b.WriteString("\n" + dimStyle.Render("  tab/↑↓ move  ·  enter edit/run  ·  space toggle  ·  esc back"))
+	return formPanel.Render(b.String())
+}
+
+func dash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+func maskToken(s string) string {
+	if len(s) <= 8 {
+		return "••••"
+	}
+	return s[:4] + "…" + s[len(s)-4:]
 }
 
 // ── Task view ─────────────────────────────────────────────────────────────────

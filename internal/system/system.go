@@ -83,8 +83,7 @@ func (e *Env) Which(cmd string) bool {
 }
 
 func (e *Env) AptUpdate(ctx context.Context) error {
-	_, err := e.Run(ctx, "apt-get", "update", "-qq")
-	return err
+	return e.aptRun(ctx, "update", "-qq")
 }
 
 func (e *Env) AptInstall(ctx context.Context, pkgs ...string) error {
@@ -92,13 +91,44 @@ func (e *Env) AptInstall(ctx context.Context, pkgs ...string) error {
 		e.logf("[dry] apt-get install %s", strings.Join(pkgs, " "))
 		return nil
 	}
-	args := append([]string{"install", "-y", "-qq"}, pkgs...)
-	cmd := exec.CommandContext(ctx, "apt-get", args...)
-	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("apt install %v: %w: %s", pkgs, err, strings.TrimSpace(string(out)))
+	return e.aptRun(ctx, append([]string{"install", "-y", "-qq"}, pkgs...)...)
+}
+
+// aptRun retries when another dpkg/apt process holds the frontend lock
+// (unattended-upgrades, a parallel install) instead of failing the whole
+// provisioning run.
+func (e *Env) aptRun(ctx context.Context, args ...string) error {
+	const attempts = 8
+	var last string
+	for i := 0; i < attempts; i++ {
+		cmd := exec.CommandContext(ctx, "apt-get", args...)
+		cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		last = strings.TrimSpace(string(out))
+		if !aptLocked(last) {
+			return fmt.Errorf("apt %v: %w: %s", args, err, last)
+		}
+		if i == attempts-1 {
+			break
+		}
+		wait := time.Duration(5*(i+1)) * time.Second
+		e.logf("apt is busy (lock held by another process); retrying in %s…", wait)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
 	}
-	return nil
+	return fmt.Errorf("apt %v: package manager stayed locked: %s", args, last)
+}
+
+func aptLocked(out string) bool {
+	return strings.Contains(out, "Could not get lock") ||
+		strings.Contains(out, "Unable to acquire the dpkg frontend lock") ||
+		strings.Contains(out, "is another process using it")
 }
 
 // HTTPGet fetches url and returns the response body.

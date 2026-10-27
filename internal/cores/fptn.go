@@ -64,9 +64,13 @@ func (Fptn) Build(p *Plan) (Result, error) {
 	}
 	pass := p.St.Secret("fptn|pw", func() state.Secret { return state.Secret{Password: state.NewPassword(16)} }).Password
 	ctx := context.Background()
-	_, _ = p.Sys.Run(ctx, "fptn-passwd", "--del-user", user, "--userfile", fptnDir+"/users.list")
-	// fptn-passwd reads the password from stdin; write it directly without shell.
-	if err := p.Sys.RunStdin(ctx, pass+"\n", "fptn-passwd",
+	// fptn-passwd confirms deletion with a Y/N prompt; answer it, but ignore
+	// failures (the user may not exist yet).
+	_ = p.Sys.RunStdin(ctx, "Y\n", "fptn-passwd", "--del-user", user, "--userfile", fptnDir+"/users.list")
+	// fptn-passwd prompts for the password TWICE ("Type password" and
+	// "Retype password"); feed it twice or it exits 1 with "Passwords do
+	// not match".
+	if err := p.Sys.RunStdin(ctx, pass+"\n"+pass+"\n", "fptn-passwd",
 		"--add-user", user, "--bandwidth", "100", "--userfile", fptnDir+"/users.list"); err != nil {
 		return Result{}, err
 	}

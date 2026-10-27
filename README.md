@@ -11,18 +11,19 @@ No domain required. No manual SNI selection. No configuration knowledge required
 ---
 
 ```
-◆ ngray toolkit  v0.8.0
+◆ ngray toolkit  v0.8.1
   YOUR.SERVER.IP · nginx :443 · hy2 udp :443 · BBR on  ✓ up to date
 
   1  Server setup / repair
+  r  Re-select SNIs
   2  Client links · subscribe
-  3  Test SNIs  (REALITY-fitness + latency, live)
-  r  Re-select SNIs  (re-rank the pool, rewrite config.yml)
+  3  Test SNIs (live)
   4  Scan CDN edges
   5  Status
   6  Update cores
   7  Firewall
   8  Doctor
+  p  Domain / proxy   (Cloudflare cert + DNS + reverse proxy)
   9  Regenerate credentials
 ```
 
@@ -32,7 +33,7 @@ No domain required. No manual SNI selection. No configuration knowledge required
 
 On a fresh Ubuntu VPS, `sudo ./ngray` runs an interactive console. Choose **Server setup**:
 
-1. Sweeps a tiered pool of ~470 candidate SNIs for REALITY fitness — a fast two-phase scan (a cheap probe across every host, then full latency measurement only on the ones that pass) — and assigns the best from a proven, operator-whitelist-friendly **preferred** tier (now including AI/dev-infra/crypto/education domains and a **blackout-survivor** set Iran allowlists even during a national shutdown) before ever touching the **extended** fallback tier.
+1. Sweeps a tiered pool of ~1378 candidate SNIs for REALITY fitness — a fast two-phase scan (a cheap probe across every host, then full latency measurement only on the ones that pass) — and assigns the best from a proven, operator-whitelist-friendly **preferred** tier (now including AI/dev-infra/crypto/education domains and a **blackout-survivor** set Iran allowlists even during a national shutdown) before ever touching the **extended** fallback tier.
 2. Installs every enabled core (`xray`, `shoes`, `sing-box`, `hysteria2`, `fptn`, and optionally `mieru`, `amneziawg`) — with your permission, one by one.
 3. Configures nginx on TCP 443 as an SNI-multiplexer routing different client SNIs to different protocol backends — all invisible on the public interface.
 4. Generates keys, credentials and short-IDs that persist across re-runs.

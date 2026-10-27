@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -34,6 +35,14 @@ func newSetupForm(cfg *config.Config) setupForm {
 	}
 }
 
+func newDomainForm(cfg *config.Config) domainForm {
+	d := domainForm{dns: true}
+	if cfg != nil && cfg.Cores.Xray.CDN != nil {
+		d.domain = cfg.Cores.Xray.CDN.Domain
+	}
+	return d
+}
+
 func New() Model {
 	self, _ := os.Executable()
 	sp := spinner.New()
@@ -43,10 +52,11 @@ func New() Model {
 	cfg, _ := config.LoadOrDefault(config.Path())
 
 	m := Model{
-		self: self,
-		spin: sp,
-		vp:   viewport.New(0, 0),
-		form: newSetupForm(cfg),
+		self:   self,
+		spin:   sp,
+		vp:     viewport.New(0, 0),
+		form:   newSetupForm(cfg),
+		domain: newDomainForm(cfg),
 	}
 	m.items = buildItems()
 	if st, err := state.Load(state.Path()); err == nil {
@@ -118,6 +128,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateTask(msg)
 		case screenSetupForm:
 			return m.updateForm(msg)
+		case screenDomainForm:
+			return m.updateDomainForm(msg)
 		default:
 			return m.updateMenu(msg)
 		}
@@ -167,6 +179,12 @@ func (m Model) selectItem(it item) (tea.Model, tea.Cmd) {
 		m.form = newSetupForm(cfg)
 		m.pendingItem = it
 		m.screen = screenSetupForm
+		return m, nil
+	}
+	if it.domainBefore {
+		cfg, _ := config.LoadOrDefault(config.Path())
+		m.domain = newDomainForm(cfg)
+		m.screen = screenDomainForm
 		return m, nil
 	}
 	return m.start(it)
@@ -265,6 +283,84 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 
 	_ = config.Save(config.Path(), cfg) // best-effort; setup re-reads the file
 	return m.start(m.pendingItem)
+}
+
+// ── Domain / proxy form ───────────────────────────────────────────────────────
+
+func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	d := &m.domain
+	if d.editing {
+		switch msg.String() {
+		case "enter", "tab":
+			switch d.focused {
+			case dfDomain:
+				d.domain = d.editBuf
+			case dfTarget:
+				d.target = d.editBuf
+			case dfToken:
+				d.cfToken = d.editBuf
+			}
+			d.editing = false
+			if msg.String() == "tab" && d.focused < dfProceed {
+				d.focused++
+			}
+		case "esc":
+			d.editing = false
+		case "backspace", "ctrl+h":
+			if len(d.editBuf) > 0 {
+				d.editBuf = d.editBuf[:len(d.editBuf)-1]
+			}
+		default:
+			if s := msg.String(); len(s) == 1 && s[0] >= 32 && s[0] < 127 {
+				d.editBuf += s
+			}
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "q":
+		m.screen = screenMenu
+	case "up", "k", "shift+tab":
+		if d.focused > 0 {
+			d.focused--
+		}
+	case "down", "j", "tab":
+		if d.focused < numDomainFields-1 {
+			d.focused++
+		}
+	case "enter", " ":
+		switch d.focused {
+		case dfDomain:
+			d.editing, d.editBuf = true, d.domain
+		case dfTarget:
+			d.editing, d.editBuf = true, d.target
+		case dfToken:
+			d.editing, d.editBuf = true, d.cfToken
+		case dfDNS:
+			d.dns = !d.dns
+		case dfProceed:
+			return m.submitDomainForm()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) submitDomainForm() (tea.Model, tea.Cmd) {
+	d := m.domain
+	d.domain = strings.TrimSpace(strings.ToLower(d.domain))
+	if d.domain == "" {
+		d.editing, d.focused, d.editBuf = true, dfDomain, d.domain
+		m.domain = d
+		return m, nil
+	}
+	m.domain = d
+	it := item{name: "Domain / proxy", task: func(ctx context.Context, emit func(string)) error {
+		return taskDomain(ctx, emit, d)
+	}}
+	return m.start(it)
 }
 
 // ── Task view ─────────────────────────────────────────────────────────────────

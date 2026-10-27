@@ -16,6 +16,7 @@ type screen int
 const (
 	screenMenu screen = iota
 	screenSetupForm
+	screenDomainForm
 	screenTask
 )
 
@@ -35,6 +36,7 @@ type item struct {
 	exec            []string // non-empty → re-exec (full-screen child process)
 	task            taskFn
 	wizardBefore    bool // show setup wizard before running this task
+	domainBefore    bool // show the domain/proxy form before running this task
 	disabled        func(m *Model) (bool, string)
 }
 
@@ -62,11 +64,34 @@ type setupForm struct {
 	editBuf string // in-progress text before commit
 }
 
+// Domain field indices (navigation order in the domain/proxy form).
+const (
+	dfDomain = iota
+	dfTarget
+	dfToken
+	dfDNS
+	dfProceed
+	numDomainFields
+)
+
+// domainForm collects the Cloudflare / reverse-proxy parameters.
+type domainForm struct {
+	domain  string
+	target  string
+	cfToken string
+	dns     bool
+	focused int
+	editing bool
+	editBuf string
+}
+
 type Model struct {
 	screen screen
 	cursor int
 	items  []item
 	self   string
+
+	domain domainForm
 
 	// header status (async)
 	ip        string

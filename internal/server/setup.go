@@ -299,7 +299,13 @@ func ensureNginx(ctx context.Context, sys *system.Env, o Options) error {
 		return nil
 	}
 	if sys.Which("nginx") {
-		return sys.AptInstall(ctx, "libnginx-mod-stream")
+		// The stream module is required for ssl_preread; older package lists
+		// can miss it, so refresh once and retry on failure.
+		if err := sys.AptInstall(ctx, "libnginx-mod-stream"); err != nil {
+			_ = sys.AptUpdate(ctx)
+			return sys.AptInstall(ctx, "libnginx-mod-stream")
+		}
+		return nil
 	}
 	if !o.confirm("install nginx?") {
 		return fmt.Errorf("nginx required")
@@ -323,10 +329,19 @@ func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options)
 			o.log("backed up existing nginx.conf → %s", dst)
 		}
 	}
+	// Keep the current config so a failed validation never leaves nginx broken.
+	prev, hadPrev := []byte(nil), false
+	if b, err := sys.ReadFile(nginx.ConfPath); err == nil {
+		prev, hadPrev = b, true
+	}
 	if err := sys.WriteString(nginx.ConfPath, c.Render(), 0o644); err != nil {
 		return err
 	}
 	if out, err := sys.Run(ctx, "nginx", "-t"); err != nil {
+		if hadPrev {
+			_ = sys.WriteFile(nginx.ConfPath, prev, 0o644)
+			o.log("nginx -t failed; restored the previous nginx.conf")
+		}
 		return fmt.Errorf("nginx -t failed: %s", out)
 	}
 	o.log("nginx.conf written and validated")
