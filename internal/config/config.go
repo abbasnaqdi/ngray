@@ -163,7 +163,7 @@ type Client struct {
 
 func Default() *Config {
 	return &Config{
-		Server: Server{IP: "auto", EnableBBR: true, SNIMaxPerCore: 40},
+		Server: Server{IP: "auto", EnableBBR: true, SNIMaxPerCore: 96},
 		Nginx:  Nginx{Port: 443},
 		Cores: Cores{
 			Xray: Xray{

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abbasnaqdi/ng-ray/internal/cf"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
@@ -133,6 +134,13 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	var routes []nginx.Route
 	var cdnws []nginx.WSRoute
 
+	// direct.<domain>: a DNS-ONLY A record (grey cloud) to the same IP. The
+	// CF-fronted twins already cover WS/XHTTP through the edge; this record
+	// gives every DIRECT-IP protocol (anytls, vision, xhttp, tuic, hypa) a
+	// DOMAIN form of the same config, so an IP string never has to appear in
+	// a client export. Needs the CF token only; setup skips gracefully without.
+	st.DirectDomain = ensureDirectDomain(ctx, sys, cfg, ip, st, o)
+
 	// Path-proxied local services: example.com/<PORT>/… reaches a dashboard or
 	// other project that would otherwise be unreachable when a censor blocks
 	// arbitrary ports. Only circular ports / the sub HTTPS port are rejected —
@@ -183,6 +191,15 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		} else {
 			o.log("configured %s (%d client config(s) — see menu 2)", core.Name(), len(res.Notes))
 		}
+	}
+
+	// Domain form of every DIRECT config (anytls/vision/xhttp/tuic/hy2):
+	// same credentials, server address swapped for direct.<domain>. The
+	// CF-fronted (Proxy termination) configs are already domain-shaped.
+	if st.DirectDomain != "" {
+		clones := domainClones(endpoints, st.DirectDomain)
+		endpoints = append(endpoints, clones...)
+		o.log("direct domain %s — %d extra config(s) with no IP visible", st.DirectDomain, len(clones))
 	}
 
 	if len(cfg.Cores.Singbox.Reality) > 0 {
@@ -603,3 +620,56 @@ func portList(ports []int) string {
 // listenPort extracts the TCP port from an nginx `listen <addr>:<port>` line,
 // accepting both `listen 80;` and `listen [::]:80;` / `127.0.0.1:8080;` forms.
 var listenPort = regexp.MustCompile(`listen\s+(?:[^\s;]*:\n?)?(\d+)`)
+
+// ensureDirectDomain creates/updates the DNS-ONLY direct.<domain> A record via
+// the cached CF token. Returns "" when no domain, no token, or sandbox — the
+// caller then skips the domain-form clones (IP configs remain unaffected).
+func ensureDirectDomain(ctx context.Context, sys *system.Env, cfg *config.Config, ip string, st *state.State, o Options) string {
+	cdn := cfg.Cores.Xray.CDN
+	if cdn == nil || !cdn.Enabled || cdn.Domain == "" {
+		return st.DirectDomain
+	}
+	cache := strings.TrimPrefix(strings.ToLower(strings.TrimSuffix(cdn.Domain, ".")), "www.")
+	dom := "direct." + cache
+	if sys.DryRun {
+		// Sandbox: pretend the record value is already in place.
+		return st.DirectDomain
+	}
+	if st.DirectDomain != "" && st.DirectDomain != dom {
+		o.log("direct domain changed %s → %s — updating the DNS record", st.DirectDomain, dom)
+	}
+	tk := cf.TokenFromEnvOrFile()
+	if tk == "" {
+		o.log("no CF token cached — direct-domain configs skipped (set NGRAY_CF_TOKEN or use the TUI Domain form once)")
+		return ""
+	}
+	if err := cf.New(tk).EnsureARecord(ctx, dom, ip, false); err != nil {
+		o.log("warning: DNS-only %s: %v — direct-domain configs skipped this run", dom, err)
+		return ""
+	}
+	o.log("DNS-only A record %s → %s (grey cloud — REALITY/TUIC/hy2 traffic never touches Cloudflare)", dom, ip)
+	return dom
+}
+
+// domainClones returns one domain-addressed copy per direct-IP endpoint.
+// CF-fronted (already domain) and mieru JSON blobs are skipped.
+func domainClones(endpoints []links.Endpoint, dom string) []links.Endpoint {
+	var out []links.Endpoint
+	for _, e := range endpoints {
+		switch e.Proto {
+		case "vless-ws-tls", "vless-xhttp-tls":
+			continue // already domain-fronted
+		}
+		if e.Raw != nil {
+			continue // mieru: JSON blob embeds its own address; leave as-is
+		}
+		if e.Server == dom {
+			continue
+		}
+		clone := e
+		clone.Tag = e.Tag + "-domain"
+		clone.Server = dom
+		out = append(out, clone)
+	}
+	return out
+}

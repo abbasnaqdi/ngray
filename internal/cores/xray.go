@@ -2,13 +2,9 @@ package cores
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -129,113 +125,10 @@ func (Xray) Build(p *Plan) (Result, error) {
 		})
 	}
 
-	// Cloudflare-frontable inbounds: VLESS over WS and/or XHTTP with real TLS
-	// (Origin Certificate), served behind the same nginx ssl_preread mux via
-	// distinct SNIs. The client connects to the domain (Cloudflare edge), not
-	// the server IP, so these survive a direct-IP block. Skipped if the cert is
-	// not yet installed.
-	if cdn := p.Cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
-		if fileExists(cdn.CertFile) && fileExists(cdn.KeyFile) {
-			tlsSettings := func(sni string, alpn []string) map[string]any {
-				return map[string]any{
-					"serverName":   sni,
-					"alpn":         alpn,
-					"certificates": []map[string]any{{"certificateFile": cdn.CertFile, "keyFile": cdn.KeyFile}},
-				}
-			}
-			vlessClient := func(uid string) map[string]any {
-				return map[string]any{"clients": []map[string]any{{"id": uid}}, "decryption": "none"}
-			}
-			if cdn.WS {
-				cid := id("xray", "cdnws", cdn.Domain)
-				port, err := p.Alloc.Backend("xray", cid)
-				if err != nil {
-					return Result{}, err
-				}
-				uid, path := uuid(p.St, cid), xhttpPath(p.St, cid)
-				inbounds = append(inbounds, map[string]any{
-					"listen": "127.0.0.1", "port": port, "protocol": "vless",
-					"settings": vlessClient(uid),
-					"streamSettings": map[string]any{
-						"network": "ws", "security": "tls",
-						// WS runs over HTTP/1.1 only — offering h2 in ALPN makes TLS
-						// negotiate HTTP/2 and the WebSocket upgrade fails with 400.
-						"tlsSettings": tlsSettings(cdn.Domain, []string{"http/1.1"}),
-						"wsSettings":  map[string]any{"path": path, "host": cdn.Domain},
-					},
-				})
-				res.Routes = append(res.Routes, nginx.Route{SNI: cdn.Domain, Backend: port})
-				res.Endpoints = append(res.Endpoints, links.Endpoint{
-					Tag: links.Tag("cf", "ws", cdn.Domain), Proto: "vless-ws-tls",
-					Server: cdn.Domain, Port: 443, SNI: cdn.Domain, UUID: uid, Path: path,
-				})
-			}
-			if cdn.XHTTP {
-				alt := cdn.XHTTPDomain()
-				cid := id("xray", "cdnxh", alt)
-				port, err := p.Alloc.Backend("xray", cid)
-				if err != nil {
-					return Result{}, err
-				}
-				uid, path := uuid(p.St, cid), xhttpPath(p.St, cid)
-				inbounds = append(inbounds, map[string]any{
-					"listen": "127.0.0.1", "port": port, "protocol": "vless",
-					"settings": vlessClient(uid),
-					"streamSettings": map[string]any{
-						"network": "xhttp", "security": "tls",
-						"tlsSettings":   tlsSettings(alt, []string{"h2", "http/1.1"}),
-						"xhttpSettings": map[string]any{"path": path, "mode": "auto", "host": alt},
-					},
-				})
-				res.Routes = append(res.Routes, nginx.Route{SNI: alt, Backend: port})
-				res.Endpoints = append(res.Endpoints, links.Endpoint{
-					Tag: links.Tag("cf", "xhttp", alt), Proto: "vless-xhttp-tls",
-					Server: alt, Port: 443, SNI: alt, UUID: uid, Path: path,
-				})
-			}
-		} else {
-			res.Notes = map[string]string{"cloudflare": fmt.Sprintf(
-				"CDN (Cloudflare) inbounds skipped: cert/key not found at %s and %s. Install the Cloudflare Origin Certificate there and re-run setup.",
-				cdn.CertFile, cdn.KeyFile)}
-		}
-	}
-
-	// Domain+IP pairing: every route SNI also gets a CF-fronted WS TWIN —
-	// a client config over https://DOMAIN/… with a fresh UUID, served by the
-	// www-domain TLS server (XHTTPDomain) as a plain-ws loopback backend. When
-	// the censor blocks the VPS IP or starts RST-flooding a REALITY SNI (Iran
-	// 2026 behaviour), the twin still carries the same SNI's traffic.
-	if cdn := p.Cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.WS && cdn.Domain != "" &&
-		fileExists(cdn.CertFile) && fileExists(cdn.KeyFile) {
-		alt := cdn.XHTTPDomain()
-		seenSNI := map[string]bool{}
-		for _, sni := range p.Cfg.RouteSNIs() {
-			if sni == "" || seenSNI[sni] {
-				continue
-			}
-			seenSNI[sni] = true
-			cid := id("xray", "twin", sni)
-			port, err := p.Alloc.Backend("xray", cid)
-			if err != nil {
-				return Result{}, err
-			}
-			uid, path := uuid(p.St, cid), twinPath(p.St, sni)
-			inbounds = append(inbounds, map[string]any{
-				"listen": "127.0.0.1", "port": port, "protocol": "vless",
-				"settings": map[string]any{"clients": []map[string]any{{"id": uid}}, "decryption": "none"},
-				"streamSettings": map[string]any{
-					"network": "ws", "security": "none",
-					"wsSettings": map[string]any{"path": path, "host": alt},
-				},
-				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
-			})
-			res.CDNWS = append(res.CDNWS, nginx.WSRoute{Path: path, Backend: port})
-			res.Endpoints = append(res.Endpoints, links.Endpoint{
-				Tag: links.Tag("cf", "ws", sni), Proto: "vless-ws-tls",
-				Server: alt, Port: 443, SNI: alt, UUID: uid, Path: path,
-			})
-		}
-	}
+	// NOTE: no client config rides the domain any more (cdnws/cdnxh/ws
+	// twins removed 0.9.6): every share link is direct-IP only. The domain
+	// still fronts the SUBSCRIPTION (see setup.go CDNSub) and path-proxy
+	// services, which is where Cloudflare adds real value.
 
 	cfg := map[string]any{
 		"log":       map[string]any{"loglevel": "warning"},
@@ -253,12 +146,4 @@ func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func xhttpPath(st *state.State, cid string) string {
 	return "/" + st.Secret(cid+"|path", func() state.Secret { return state.Secret{Password: state.RandHex(6)} }).Password
-}
-
-// twinPath derives a stable WS path for a route-SNI twin: /t/<sub-token>/<sni
-// fingerprint>. Tying the prefix to the subscription token means a token
-// rotation (or link-rotation) also kills every previously exported twin link.
-func twinPath(st *state.State, sni string) string {
-	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSuffix(sni, "."))))
-	return "/t/" + st.EnsureSubToken() + "/" + hex.EncodeToString(sum[:])[:12]
 }

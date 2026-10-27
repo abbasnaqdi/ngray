@@ -100,49 +100,44 @@ func RenderSubscribe(w io.Writer, st *state.State) error {
 	return nil
 }
 
-// writeSubscribe prints the subscribe block: primary (Cloudflare-fronted) and
-// the direct-IP fallback. Shared by RenderClient and RenderSubscribe.
+// writeSubscribe prints the subscribe block: primary = direct-IP mixed link
+// (0.9.6: everything client-facing lives on the IP; the CF domain ones are
+// optional extras printed last). Shared by RenderClient and RenderSubscribe.
 func writeSubscribe(w io.Writer, d *state.Deploy) {
-	if d.SubURL == "" && d.SubDomainURL == "" {
+	if d.SubURL == "" && d.SubHTTPURL == "" && d.SubMixedURL == "" {
 		return
 	}
 	fmt.Fprintf(w, "\nSubscribe (add once — auto-updates all configs):\n")
 
-	// Primary: Cloudflare-fronted on the domain (no port, trusted edge cert,
-	// origin IP hidden). Formats by client; the mixed text URL covers both.
-	if d.SubDomainMixedURL != "" || d.SubDomainSingboxURL != "" || d.SubDomainURL != "" {
-		fmt.Fprintf(w, "\n  Primary — via Cloudflare (no port, trusted cert, IP hidden):\n")
+	fmt.Fprintf(w, "\n  Primary — direct IP (mixed link = everything in one text file):\n")
+	if d.SubMixedURL != "" {
+		fmt.Fprintf(w, "    mixed   %s\n", d.SubMixedURL)
+		fmt.Fprintf(w, "            → nekoray & most text clients: raw links + sing-box JSON, nothing encoded\n")
+	}
+	if d.SubHTTPURL != "" {
+		fmt.Fprintf(w, "    HTTP    %s  (plain — always reachable, no TLS warning)\n", d.SubHTTPURL)
+	}
+	if d.SubURL != "" {
+		fmt.Fprintf(w, "    HTTPS   %s  (self-signed → enable allow-insecure)\n", d.SubURL)
+	}
+	if d.SubSingboxURL != "" {
+		fmt.Fprintf(w, "    sbJSON  %s\n", d.SubSingboxURL)
+	}
+	if d.SubCertFingerprint != "" {
+		fmt.Fprintf(w, "    cert    SHA256:%s  (proxy clients pin this)\n", d.SubCertFingerprint)
+	}
+
+	// Optional extras: the same three formats over the Cloudflare domain.
+	if d.SubDomainURL != "" || d.SubDomainMixedURL != "" || d.SubDomainSingboxURL != "" {
+		fmt.Fprintf(w, "\n  Optional — via the Cloudflare domain (no port, trusted cert; only if your client handles it well):\n")
 		if d.SubDomainMixedURL != "" {
 			fmt.Fprintf(w, "    mixed   %s\n", d.SubDomainMixedURL)
-			fmt.Fprintf(w, "            → nekoray/nekobox & most text clients: plain text, raw links + JSON, nothing encoded\n")
 		}
 		if d.SubDomainSingboxURL != "" {
 			fmt.Fprintf(w, "    sbJSON  %s\n", d.SubDomainSingboxURL)
-			fmt.Fprintf(w, "            → NekoBox/husi · sing-box · Hiddify  (full set, incl. mieru)\n")
 		}
 		if d.SubDomainURL != "" {
 			fmt.Fprintf(w, "    base64  %s\n", d.SubDomainURL)
-			fmt.Fprintf(w, "            → v2rayNG · v2rayN · Streisand · Shadowrocket  (URI list; mieru only in the JSON)\n")
-		}
-	}
-
-	// Fallback: direct IP (self-signed) for when the domain is blocked.
-	if d.SubURL != "" || d.SubHTTPURL != "" {
-		fmt.Fprintf(w, "\n  Fallback — direct IP (use if the domain is blocked; self-signed → enable allow-insecure):\n")
-		if d.SubMixedURL != "" {
-			fmt.Fprintf(w, "    mixed   %s\n", d.SubMixedURL)
-		}
-		if d.SubSingboxURL != "" {
-			fmt.Fprintf(w, "    sbJSON  %s\n", d.SubSingboxURL)
-		}
-		if d.SubURL != "" {
-			fmt.Fprintf(w, "    base64  %s\n", d.SubURL)
-		}
-		if d.SubHTTPURL != "" {
-			fmt.Fprintf(w, "    HTTP    %s  (plain; no TLS warning)\n", d.SubHTTPURL)
-		}
-		if d.SubCertFingerprint != "" {
-			fmt.Fprintf(w, "    cert    SHA256:%s  (proxy clients pin this)\n", d.SubCertFingerprint)
 		}
 	}
 }

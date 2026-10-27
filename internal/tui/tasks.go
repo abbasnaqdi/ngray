@@ -14,13 +14,10 @@ import (
 
 	"github.com/abbasnaqdi/ng-ray/internal/cf"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
-	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/domain"
-	"github.com/abbasnaqdi/ng-ray/internal/firewall"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
 	"github.com/abbasnaqdi/ng-ray/internal/nginx"
 	"github.com/abbasnaqdi/ng-ray/internal/server"
-	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 	"github.com/abbasnaqdi/ng-ray/internal/version"
@@ -35,15 +32,9 @@ func buildItems() []item {
 		{key: "2", name: "Client links · subscribe",
 			desc: "Clean link sheet: the fixed subscribe URLs + one share link per config. Press y to copy the primary link (OSC 52, works over SSH).",
 			task: taskLinks},
-		{key: "3", name: "Test SNIs (live)",
-			desc: "Read-only diagnostic: probe candidate domains for REALITY fitness (TLS1.3 + h2 + X25519). Setup re-fits the pool automatically; this does not change configs.",
-			task: taskSNI},
 		{key: "4", name: "Scan CDN edges",
 			desc: "Find CDN edge IPs reachable from this network (survive MCI). Opens the scanner: ↑/↓ move, space toggle, enter start, q quit.",
 			exec: []string{"scan"}},
-		{key: "5", name: "Status",
-			desc: "Installed version, service state and latest release for each core.",
-			task: taskStatus},
 		{key: "6", name: "Update cores",
 			desc: "Update installed cores to their latest release and restart them.",
 			task: taskUpdate,
@@ -56,9 +47,6 @@ func buildItems() []item {
 				}
 				return false, ""
 			}},
-		{key: "7", name: "Firewall",
-			desc: "Preview the default-drop ruleset (ssh + the ports your config uses); applies it when run as root.",
-			task: taskFirewall},
 		{key: "8", name: "Doctor",
 			desc: "Full diagnosis: nginx, cores, live subscription probes (auto-repairs), domain reachability, cert expiry, BBR, foreign panels.",
 			task: taskDoctor},
@@ -137,36 +125,35 @@ func applySetup(ctx context.Context, emit func(string), sandbox, rotate bool) er
 // emitSubscribeSummary prints the fresh URLs mixed-first (the single plain-text
 // link), then the format split, then the direct-IP fallback.
 func emitSubscribeSummary(emit func(string), d *state.Deploy) {
-	if d.SubURL == "" && d.SubDomainURL == "" {
+	if d.SubURL == "" && d.SubDomainURL == "" && d.SubHTTPURL == "" && d.SubMixedURL == "" {
 		return
 	}
 	emit("")
-	emit(keyStyle.Render("subscribe"))
-	if d.SubDomainMixedURL != "" {
-		emit(keyStyle.Render("  mixed   ") + okStyle.Render(d.SubDomainMixedURL))
+	emit(keyStyle.Render("subscribe") + dimStyle.Render("  (all on the server IP — domain links are optional extras)"))
+	if d.SubMixedURL != "" {
+		emit(keyStyle.Render("  mixed   ") + okStyle.Render(d.SubMixedURL))
 		emit(dimStyle.Render("          ← ONE link: raw links + sing-box JSON as plain text (nekoray reads it whole)"))
 	}
-	if d.SubMixedURL != "" {
-		emit("  mixed   " + okStyle.Render(d.SubMixedURL))
-	}
-	if d.SubDomainURL != "" || d.SubDomainSingboxURL != "" {
-		emit(dimStyle.Render("  via Cloudflare (no port, trusted cert — origin IP hidden)"))
-		if d.SubDomainURL != "" {
-			emit("  base64  " + okStyle.Render(d.SubDomainURL))
-		}
-		if d.SubDomainSingboxURL != "" {
-			emit("  sbJSON  " + okStyle.Render(d.SubDomainSingboxURL))
-		}
+	if d.SubHTTPURL != "" {
+		emit("  HTTP    " + okStyle.Render(d.SubHTTPURL) + dimStyle.Render("  (plain — always reachable)"))
 	}
 	if d.SubURL != "" {
-		emit(dimStyle.Render("  direct IP (self-signed; clients pin " + d.SubCertFingerprint[:min(12, len(d.SubCertFingerprint))] + ")"))
 		emit("  HTTPS   " + okStyle.Render(d.SubURL))
-		if d.SubSingboxURL != "" {
-			emit("  sbJSON  " + okStyle.Render(d.SubSingboxURL))
-		}
 	}
-	if d.SubHTTPURL != "" {
-		emit("  HTTP    " + d.SubHTTPURL)
+	if d.SubSingboxURL != "" {
+		emit("  sbJSON  " + okStyle.Render(d.SubSingboxURL))
+	}
+	if d.SubCertFingerprint != "" {
+		emit(dimStyle.Render("          self-signed → clients pin " + d.SubCertFingerprint[:min(12, len(d.SubCertFingerprint))]))
+	}
+	if d.SubDomainMixedURL != "" || d.SubDomainURL != "" {
+		emit(dimStyle.Render("  optional — via the Cloudflare domain (only if your client handles it):"))
+		if d.SubDomainMixedURL != "" {
+			emit("  mixed   " + d.SubDomainMixedURL)
+		}
+		if d.SubDomainURL != "" {
+			emit("  base64  " + d.SubDomainURL)
+		}
 	}
 }
 
@@ -186,19 +173,13 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	clipTarget = ""
 	clipList = clipList[:0]
 
-	// Cloudflare-fronted subscribe URLs first — the primary ones.
+	// IP-FIRST ordering (0.9.6): every client config is direct-IP, so the
+	// subscription links the user actually imports are the IP ones too.
+	// CF-fronted URLs still exist (they DO serve in the browser) but they sit
+	// at the bottom, clearly optional.
 	var subs []string
-	if d.SubDomainMixedURL != "" {
-		subs = append(subs, d.SubDomainMixedURL)
-	}
 	if d.SubMixedURL != "" {
 		subs = append(subs, d.SubMixedURL)
-	}
-	if d.SubDomainURL != "" {
-		subs = append(subs, d.SubDomainURL)
-	}
-	if d.SubDomainSingboxURL != "" {
-		subs = append(subs, d.SubDomainSingboxURL)
 	}
 	if d.SubHTTPURL != "" {
 		subs = append(subs, d.SubHTTPURL)
@@ -206,22 +187,25 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	if d.SubURL != "" {
 		subs = append(subs, d.SubURL)
 	}
-	// Endpoints, domain-fronted configs first, then direct-IP.
-	var domainLinks, directLinks []string
+	if d.SubSingboxURL != "" {
+		subs = append(subs, d.SubSingboxURL)
+	}
+	if d.SubDomainMixedURL != "" {
+		subs = append(subs, d.SubDomainMixedURL)
+	}
+	if d.SubDomainURL != "" {
+		subs = append(subs, d.SubDomainURL)
+	}
+	if d.SubDomainSingboxURL != "" {
+		subs = append(subs, d.SubDomainSingboxURL)
+	}
+	// Endpoints are all direct-IP now — plain flat list, one URI per line.
 	for _, e := range d.Endpoints {
-		u := e.URI()
-		if u == "" {
-			continue
-		}
-		if e.Proto == "vless-ws-tls" || e.Proto == "vless-xhttp-tls" {
-			domainLinks = append(domainLinks, u)
-		} else {
-			directLinks = append(directLinks, u)
+		if u := e.URI(); u != "" {
+			subs = append(subs, u)
 		}
 	}
-	clipList = append(clipList, subs...)
-	clipList = append(clipList, domainLinks...)
-	clipList = append(clipList, directLinks...)
+	clipList = subs
 	clipTarget = clipList[0]
 
 	emit(keyStyle.Render("① y = copy primary") + dimStyle.Render("  ·  a = copy all  ·  1-9 = copy that one  ·  drag unwrapped lines as-is"))
@@ -243,122 +227,12 @@ func countLinks(eps []links.Endpoint) int {
 	return n
 }
 
-func taskSNI(ctx context.Context, emit func(string)) error {
-	hosts, err := sni.LoadCandidates(candidatesPath())
-	if err != nil {
-		return err
-	}
-	emit(dimStyle.Render(fmt.Sprintf("testing %d candidates — live", len(hosts))))
-	t := sni.NewTester()
-	results := t.TestAll(ctx, hosts, 24, func(r sni.Result) {
-		if r.Status == sni.StatusOK {
-			emit(okStyle.Render("✓ "+pad(r.Host, 34)) + fmt.Sprintf("ms=%-4d (±%-3d) http=%d", r.MedianMS, r.JitterMS, r.HTTPCode))
-		} else {
-			emit(dimStyle.Render("· " + pad(r.Host, 34) + string(r.Status)))
-		}
-	})
-	ranked := sni.Ranked(results)
-	emit("")
-	emit(keyStyle.Render(fmt.Sprintf("best picks for REALITY (%d fit):", len(ranked))))
-	for i, r := range ranked {
-		if i >= 10 {
-			break
-		}
-		emit(fmt.Sprintf("  %2d. %s %dms (±%d)", i+1, pad(r.Host, 32), r.MedianMS, r.JitterMS))
-	}
-	return nil
-}
-
-func taskStatus(ctx context.Context, emit func(string)) error {
-	sys := system.New()
-	cfg, _ := config.LoadOrDefault(config.Path())
-	if cfg == nil {
-		return nil
-	}
-	st, _ := state.Load(state.Path())
-	for _, c := range cores.Registry() {
-		ver, ok := c.Installed(ctx, sys)
-		if !ok {
-			if !c.Enabled(cfg) {
-				emit(dimStyle.Render(pad(c.Name(), 12) + "disabled  (enable in config.yml)"))
-			} else {
-				emit(errStyle.Render(pad(c.Name(), 12)) + dimStyle.Render("not installed — run server setup"))
-			}
-			continue
-		}
-		latest, _ := sys.LatestVersion(ctx, c.Repo())
-		line := pad(c.Name(), 12) + pad(ver, 12)
-		if sys.IsActive(ctx, c.Service()) {
-			line += okStyle.Render("active")
-		} else {
-			line += errStyle.Render("inactive")
-		}
-		if latest != "" && latest != ver {
-			line += "  " + badge.Render("⬆ "+latest)
-		}
-		emit(line)
-	}
-
-	// Beyond the cores: nginx, the domain path, subscription liveness and the
-	// certificates — the full picture, one screen.
-	emit("")
-	for _, c := range server.Doctor(ctx, cfg, st) {
-		switch {
-		case strings.HasPrefix(c.Name, "sub "), strings.HasPrefix(c.Name, "nginx"), strings.HasPrefix(c.Name, "domain "),
-			strings.HasPrefix(c.Name, "cert "):
-			mark := dimStyle.Render("PASS")
-			switch c.Status {
-			case server.Pass:
-				mark = okStyle.Render("PASS")
-			case server.Fail:
-				mark = errStyle.Render("FAIL")
-			case server.Warn:
-				mark = warnStyle.Render("WARN")
-			}
-			emit(mark + " " + pad(c.Name, 24) + " " + c.Detail)
-			if c.Fix != "" && c.Status != server.Pass {
-				emit(dimStyle.Render("      fix: " + c.Fix))
-			}
-		}
-	}
-	if st != nil && len(st.Deploy.Endpoints) > 0 {
-		emit("")
-		emit(dimStyle.Render(fmt.Sprintf("%d endpoint(s) configured · run 'ngray doctor' for the full diagnosis", len(st.Deploy.Endpoints))))
-	}
-	return nil
-}
-
 func taskUpdate(ctx context.Context, emit func(string)) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("update needs root — run `sudo ngray update`")
 	}
 	return server.UpdateCores(ctx, func(string) bool { return true },
 		func(f string, a ...any) { emit(fmt.Sprintf(f, a...)) })
-}
-
-func taskFirewall(ctx context.Context, emit func(string)) error {
-	cfg, err := config.LoadOrDefault(config.Path())
-	if err != nil {
-		return err
-	}
-	r := firewall.Rules{TCP: []int{cfg.Nginx.Port}}
-	if cfg.Cores.Hysteria2.Enabled {
-		r.UDP = append(r.UDP, cfg.Cores.Hysteria2.Port)
-	}
-	emit(dimStyle.Render("plan (default-drop inbound):"))
-	for _, line := range r.Plan() {
-		emit("  • " + line)
-	}
-	if os.Geteuid() != 0 {
-		emit("")
-		emit(dimStyle.Render("run `sudo ngray firewall apply --yes` to apply"))
-		return nil
-	}
-	if err := firewall.New(system.New()).Apply(ctx, r); err != nil {
-		return err
-	}
-	emit(okStyle.Render("✓ applied"))
-	return nil
 }
 
 func taskDoctor(ctx context.Context, emit func(string)) error {

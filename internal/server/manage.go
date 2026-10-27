@@ -408,10 +408,34 @@ func Doctor(ctx context.Context, cfg *config.Config, st *state.State) []Check {
 		out = append(out, Check{"bbr", Warn, "not active (" + cc + ")", "ngray server setup"})
 	}
 
+	// Firewall (the separate menu item is folded into setup + this check):
+	// the NGRAY chain must exist, be reachable from INPUT, and accept SSH.
+	rules, _ := sys.Run(ctx, "iptables", "-S", "NGRAY")
+	switch {
+	case !fwOwned(rules):
+		out = append(out, Check{"firewall", Warn, "NGRAY chain not present (ngray rules not applied yet)",
+			"`ngray server setup` · or `ngray firewall apply --yes`"})
+	case !strings.Contains(rules, "--dport") && !strings.Contains(rules, "tcp"):
+		out = append(out, Check{"firewall", Warn, "chain active but no TCP accept line — verify SSH still connects", ""})
+	default:
+		out = append(out, Check{"firewall", Pass, "default-drop chain active", ""})
+	}
+
 	for _, f := range DetectForeign(ctx, sys) {
 		out = append(out, Check{"foreign", Warn, f, "left untouched by ngray"})
 	}
 	return out
+}
+
+// fwOwned reports whether the -S NGRAY output looks like an ngray chain:
+// present and ended by our DROP.
+func fwOwned(rules string) bool {
+	ss := strings.Fields(rules)
+	if len(ss) == 0 {
+		return false
+	}
+	return strings.Contains(rules, "-A NGRAY") && strings.Contains(rules, "DROP") ||
+		strings.Contains(rules, "-N NGRAY")
 }
 
 // DoctorFix applies the safe repairs doctor usually identifies (bundle

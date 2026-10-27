@@ -84,7 +84,7 @@ No single VPS IP reliably crosses both MCI and Irancell at the same time. MCI us
 - **snell v5/v6** — sing-box can now serve it, but the client ecosystem is split (Clash-family uses v4, sing-box only v5+); without a verified client on the sender side a server would hand out dead configs. ⏸ re-check when the client side settles.
 - **trusttunnel** (HTTP/2+HTTP/3 tunnel) — promising and young; supported only in mihomo 1.19+ and custom sing-box forks, no distribution-track server binary. ⏸ watch.
 - **MASQUE** (HTTP/3 CONNECT-IP) — the one verified 2026 addition: sing-box 1.14 (Oct 2026) ships client *and* server endpoints, mobile clients are adding it right now. ⏸ planned: enable as a sing-box inbound once the client apps you use support it.
-- **XHTTP via Cloudflare** (`cdn.xhttp: true`) — packet-up/GET-mode XHTTP is designed for CDN traversal, but CF Free response-buffering historically breaks it; Flask-free configs keep it opt-in until *your* `domain check` + client test proves it on your free plan.
+- **XHTTP via Cloudflare** (`cdn.xhttp: true`) — packet-up/GET-mode XHTTP is designed for CDN traversal, but CF Free response-buffering historically breaks it; and since 0.9.6 the CDN path only fronts the subscription, so nothing to enable here.
 
 What ngray does keep verified-current in 2026: Xray 26.x warns that **plain WS is deprecated** — nginx-hide XHTTP is the recommended direct path (already generated), REALITY RST-floods from Iran's DPS are answered by SNI rotation + the CDN twins, and sing-box 1.14.4 is the deployed core (ngray pins/updates it).
 
@@ -236,18 +236,12 @@ Generated links import into:
 
 | URL | Format | Best for |
 |---|---|---|
-| `https://www.DOMAIN/sm/TOKEN` | **mixed plain-text** — raw share links + full sing-box JSON, **nothing base64-encoded** | nekoray/nekobox & any client reading text subscriptions — ONE URL for everything (incl. mieru via the JSON) |
-| `https://www.DOMAIN/sb/TOKEN` | **sing-box JSON** (auto + select groups) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru** |
-| `https://www.DOMAIN/s/TOKEN` | base64 URI list | v2rayNG · v2rayN · Streisand · Shadowrocket — URI configs (mieru only in JSON) |
+| `https://SERVER-IP:2053/sm/TOKEN` | **mixed plain-text** — raw share links + full sing-box JSON, **nothing base64-encoded** | nekoray/nekobox & any client reading text subscriptions — ONE URL for everything (incl. mieru via the JSON) · **primary** |
+| `https://SERVER-IP:2053/sb/TOKEN` | **sing-box JSON** (auto + select groups) | NekoBox/husi · sing-box · Hiddify — full set, **incl. mieru** |
+| `https://SERVER-IP:2053/s/TOKEN` | base64 URI list | v2rayNG · v2rayN · Streisand · Shadowrocket — URI configs (mieru only in JSON) |
+| `http://SERVER-IP/s/TOKEN` | base64 over plain HTTP | always reachable, no cert errors anywhere |
 
-**Fallback — direct IP** (always produced; use when the domain is blocked): self-signed TLS, so enable skip-cert-verify or pin the printed `pinSHA256`.
-
-| URL | Format |
-|---|---|
-| `https://SERVER-IP:2053/sm/TOKEN` | mixed plain-text (raw links + JSON) |
-| `https://SERVER-IP:2053/sb/TOKEN` | sing-box JSON |
-| `https://SERVER-IP:2053/s/TOKEN` | base64 URI list |
-| `http://SERVER-IP/s/TOKEN` | base64 over plain HTTP (no cert errors anywhere) |
+**Optional — over the Cloudflare domain** (same three formats at `https://www.DOMAIN/{sm,sb,s}/TOKEN`, when a domain is configured): use only if your client handles CF-fronted hosts well. All client configs themselves are direct-IP.
 
 Add one URL in any app; all configs appear and auto-update, and the sing-box `auto` group health-checks every endpoint so dead ones are skipped automatically. **mieru has no share-link URI**, so it rides only the **sing-box JSON** bundle (`/sb/`) — import that one in NekoBox/husi to get it. The raw mieru JSON is also printed by `client links` for the standalone mieru app.
 
@@ -286,7 +280,7 @@ or the last full sweep is older than 7 days (`last_sni_probe` in
 proxy-state.json) — the separate re-select step no longer exists. Manual sweeps:
 `ngray sni regen` or the read-only **Test SNIs (live)** diagnostic.
 
-**Volume knob**: `server.sni_max_per_core` (default **40**, earlier 24) caps
+**Volume knob**: `server.sni_max_per_core` (default **96**, earlier 24) caps
 REALITY routes per core; XHTTP scales at budget/3; every route SNI also gets a
 Cloudflare `cf-ws-<sni>` twin, so endpoints ≈ 2× SNIs. Raise it (e.g. 100) for a
 bigger pool and more domain+IP pairs — trim/limits apply on every setup.
@@ -301,30 +295,29 @@ the client connects to a Cloudflare edge IP (which the censor can't blanket-bloc
 without huge collateral), and CF proxies to your origin. Configure a domain under
 `cores.xray.cdn` and ngray adds:
 
-- **A WebSocket proxy** on `DOMAIN` — `VLESS + WS + TLS`, served behind the same
-  443 SNI-mux, terminating TLS with a Cloudflare **Origin Certificate**. This is
-  the config that survives a direct-IP block.
-- **The subscription** on `www.DOMAIN` — served on 443 via Cloudflare, so the
-  subscribe URL has no port, a trusted cert, and a hidden origin IP.
-- **A domain twin for every route SNI** — the domain+IP pairing rule: for each
-  REALITY/XHTTP SNI there is one direct-IP config *and* one `cf-ws-<sni>` config
-  on `https://www.DOMAIN/t/<token>/<fp>` (plain WS behind the nginx TLS server,
-  rotating together with the subscription token). When Iran's DPI starts
-  RST-flooding a REALITY handshake or the VPS IP is blocked, the twin still
-  carries the same SNI's traffic. UDP cores (Hysteria2/TUIC/mieru) cannot ride
-  Cloudflare — they stay direct-IP.
+- **The subscription** on `www.DOMAIN` — `/sm/` (plain-text mixed), `/s/`
+  (base64) and `/sb/` (sing-box JSON) served on 443 via Cloudflare: no port, a
+  trusted cert, a hidden origin IP, and still WS-free (the browser/subscription
+  path is the only thing that NEEDS to traverse CF).
+- **Path-proxy services** (`path_ports`) — dashboards on blocked ports come up
+  under the domain path (see below).
+- Share links themselves (REALITY/anytls/xhttp/hysteria/TUIC) stay **direct-IP
+  only** (0.9.6): every earlier domain-fronted client variant (cdnws, cdnxh,
+  ws-twins) is gone — they all shared one fragile failure mode (TLS terminated
+  at the CF edge + domain configs the operators' clients mishandled), while the
+  raw IP configs never had it. Practical result: ONE reliable subscription
+  channel through CF, ALL client configs on the IP.
 
 What can and cannot traverse Cloudflare:
 
-- ✅ **VLESS + WebSocket + TLS** — works on the Cloudflare **Free** plan.
+- ✅ **The subscription channel** — text/base64/JSON answers from nginx; works
+  on the Cloudflare **Free** plan.
 - ❌ **REALITY** — no. CF terminates TLS at its edge, breaking REALITY's
   origin-handshake authentication. REALITY stays direct-IP only.
+- ❌ **VLESS+WS client configs** — keep out of the client set: Iran's DPI
+  reassembles TCP and RST-floods CDN-fronted SNI traffic (2026), so the
+  subscription-alone approach is the only CF reliance worth having.
 - ❌ **Hysteria2 / TUIC (UDP/QUIC)** — no. CF doesn't proxy arbitrary UDP.
-- ❌ **XHTTP / SplitHTTP** — not guaranteed on Free (CF response buffering);
-  opt-in testable: `cores.xray.cdn.xhttp: true` adds a VLESS+XHTTP inbound on
-  `www.DOMAIN` behind the same 443 mux (nginx hides the xray fingerprint, which
-  is what the Xray project recommends). Verified by your own `domain check` +
-  client test: if it 502s through CF, stay on the WS route.
 
 ### Reach services by path (no extra ports)
 

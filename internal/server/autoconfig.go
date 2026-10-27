@@ -29,7 +29,7 @@ func RegenerateSNIs(ctx context.Context, candidatesPath, configPath string, cfg 
 // maxPerCore is the DEFAULT REALITY budget per core. The active budget comes
 // from config server.sni_max_per_core (see sniBudget), so operators can raise
 // the endpoint volume without a rebuild.
-const maxPerCore = 40
+const maxPerCore = 96
 
 // maxXHTTP is the default XHTTP cap; the active cap scales with the budget.
 func xHTTPCap(budget int) int {
@@ -210,6 +210,7 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 	if len(trimmed) > 0 {
 		ranked = trimmed
 	}
+	ranked = mergeRanked(ranked, cfg, log)
 	sort.SliceStable(ranked, func(i, j int) bool {
 		if pi, pj := preferred[ranked[i].Host], preferred[ranked[j].Host]; pi != pj {
 			return pi // proven (whitelist-friendly) tier stays first
@@ -294,6 +295,58 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 		len(cfg.Cores.Xray.Reality)+len(cfg.Cores.Xray.XHTTP)+
 			len(cfg.Cores.Shoes.Reality)+len(cfg.Cores.Singbox.Reality))
 	return nil
+}
+
+// mergeRanked adds the operator's OWNED, PROVEN SNIs (already in config.yml,
+// passed fitness in this sweep) to the front of the fresh ranking. An auto
+// re-fit therefore MERGES proven data with new discoveries — the previous
+// working set is never silently replaced, only Iran-filtered hosts drop out
+// (handled by the swap pass before this), and the newest discoveries join.
+// Duplicate and unfit hosts are dropped; the merged list stays ranked.
+func mergeRanked(ranked []sni.Result, cfg *config.Config, log func(string, ...any)) []sni.Result {
+	byHost := map[string]sni.Result{}
+	for _, r := range ranked {
+		byHost[strings.ToLower(r.Host)] = r
+	}
+	var pinned []sni.Result
+	pinnedSet := map[string]bool{}
+	missing := 0
+	for _, h := range cfg.RouteSNIs() {
+		h = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(h), "."))
+		if h == "" || pinnedSet[h] {
+			continue
+		}
+		r, ok := byHost[h]
+		if !ok {
+			missing++ // SNI not in the pool file at all (custom entry): keep the ranking untouched for it
+			continue
+		}
+		if r.Fit() && r.MedianMS <= 2000 && !sni.IranFiltered(h) {
+			pinned = append(pinned, r)
+			pinnedSet[h] = true
+		}
+	}
+	if len(pinned) == 0 {
+		// Still strip new-pool entries that borrow Iran-filtered brands.
+		out := make([]sni.Result, 0, len(ranked))
+		for _, r := range ranked {
+			if !sni.IranFiltered(r.Host) {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	out := make([]sni.Result, 0, len(ranked)+len(pinned))
+	out = append(out, pinned...)
+	for _, r := range ranked {
+		lh := strings.ToLower(r.Host)
+		if pinnedSet[lh] || sni.IranFiltered(lh) {
+			continue
+		}
+		out = append(out, r)
+	}
+	log("auto-SNI: %d proven existing SNI(s) pinned first (%d config SNIs were not in the pool)", len(pinned), missing)
+	return out
 }
 
 // sniBudget hands out ranked SNIs without repeating any host.

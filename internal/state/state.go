@@ -34,6 +34,7 @@ type State struct {
 	NginxPort    int                `json:"nginx_port,omitempty"`
 	BBR          bool               `json:"bbr,omitempty"`
 	LastSNIProbe time.Time          `json:"last_sni_probe,omitempty"`
+	DirectDomain string             `json:"direct_domain,omitempty"`
 	SubToken     string             `json:"sub_token,omitempty"`
 	Keys         map[string]Keypair `json:"keys,omitempty"`
 	Secrets      map[string]Secret  `json:"secrets,omitempty"`
