@@ -3,6 +3,7 @@ package cf
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,3 +110,60 @@ func TestZoneNotFound(t *testing.T) {
 		t.Fatal("expected no-zone error")
 	}
 }
+
+func TestNormalizeToken(t *testing.T) {
+	for in, want := range map[string]string{
+		"  clean40token  ": "clean40token",
+		`"quoted"`:         "quoted",
+		"Bearer abc":       "abc",
+		"bearer\tABC ":     "ABC",
+		"cfut_a b c":       "cfut_abc",  // chat-wrapped copy
+		"cfut_ab\u200fcd":  "cfut_abcd", // RTL mark stripped
+		"'\u200b.cfut_x'":  "cfut_x",    // zero-width + noise
+		"cfut_abcdefghijklmnopqrstuvwxyz0123456789": "cfut_abcdefghijklmnopqrstuvwxyz0123456789",
+	} {
+		if got := NormalizeToken(in); got != want {
+			t.Errorf("NormalizeToken(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTokenKind(t *testing.T) {
+	for in, want := range map[string]string{
+		"cfut_" + strings.Repeat("a", 53-5):        "user API token (cfut_ format)",
+		"cfat_abcdefghijklmnop":                    "ACCOUNT-owned token (cfat_ format)",
+		"cfk_abcdef":                               "Global API Key (cfk_ format)",
+		strings.Repeat("0123456789abcdef", 3)[:37]: "Global API Key (legacy 37-char hex)",
+		strings.Repeat("abcdefghij", 4):            "legacy API token (unprefixed)",
+		"v1.0-something":                           "Origin CA key (v1.0- format)",
+		"Bearer cfat_x":                            "ACCOUNT-owned token (cfat_ format)",
+	} {
+		if got := TokenKind(in); got != want {
+			t.Errorf("TokenKind(%q…) = %q, want %q", in[:min(len(in), 8)], got, want)
+		}
+	}
+}
+
+func TestVerifyTokenRejectsWrongKind(t *testing.T) {
+	// An account-owned token must fail fast WITHOUT any network call.
+	called := false
+	c := New("cfat_" + strings.Repeat("x", 48))
+	c.HTTP = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true}`))}, nil
+	})}
+	err := c.VerifyToken(context.Background())
+	if err == nil {
+		t.Fatal("expected rejection of cfat_ token")
+	}
+	if called {
+		t.Fatal("cfat_ must be rejected without a network call")
+	}
+	if !strings.Contains(err.Error(), "ACCOUNT-owned") || !strings.Contains(err.Error(), "cfut_") {
+		t.Fatalf("guidance missing: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

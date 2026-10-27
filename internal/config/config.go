@@ -381,3 +381,62 @@ func (c *Config) RouteSNIs() []string {
 	}
 	return out
 }
+
+// StripCDNSNIs removes the CDN fronting domain (and its www. sibling) from
+// every core's REALITY/XHTTP SNI list. Those slots are camouflage hosts — the
+// fronting domain itself must never appear there (nginx routes one SNI to one
+// backend, and a duplicate across cores fails validation). Idempotent;
+// returns every removed host so callers can log it.
+func (c *Config) StripCDNSNIs(domains ...string) []string {
+	ban := map[string]bool{}
+	for _, d := range domains {
+		d = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(d), "."))
+		if d == "" {
+			continue
+		}
+		ban[d] = true
+		ban["www."+d] = true
+	}
+	if len(ban) == 0 {
+		return nil
+	}
+	var removed []string
+	drop := func(s string) (string, bool) {
+		if ban[strings.ToLower(s)] {
+			removed = append(removed, s)
+			return "", true
+		}
+		return s, false
+	}
+	c.Cores.Xray.Reality = filterReality(c.Cores.Xray.Reality, drop)
+	c.Cores.Xray.XHTTP = filterXHTTP(c.Cores.Xray.XHTTP, drop)
+	c.Cores.Shoes.Reality = filterReality(c.Cores.Shoes.Reality, drop)
+	c.Cores.Singbox.Reality = filterReality(c.Cores.Singbox.Reality, drop)
+	return removed
+}
+
+func filterReality(in []Reality, drop func(string) (string, bool)) []Reality {
+	out := in[:0]
+	for _, r := range in {
+		s, gone := drop(r.SNI)
+		if gone {
+			continue
+		}
+		r.SNI = s
+		out = append(out, r)
+	}
+	return out
+}
+
+func filterXHTTP(in []XHTTP, drop func(string) (string, bool)) []XHTTP {
+	out := in[:0]
+	for _, x := range in {
+		s, gone := drop(x.SNI)
+		if gone {
+			continue
+		}
+		x.SNI = s
+		out = append(out, x)
+	}
+	return out
+}

@@ -155,9 +155,14 @@ hidden and the cert is trusted. The token is read from `NGRAY_CF_TOKEN`,
 **Two ways, pick one:**
 
 - **API Token (recommended, automatic):** `ngray domain token` prints the exact
-  2-minute recipe (which dashboard page, which two permissions: `Zone · DNS ·
-  Edit` + `Zone · Origin CA · Edit`, and what to copy — the long secret, not
-  the Token ID). Then the TUI `p` form does everything. SSL mode → **Full (strict)**.
+  2-minute recipe: create it under **My Profile → API Tokens** (NOT
+  "Manage Account → Account API Tokens" — those account-owned tokens start
+  with `cfat_` and cannot be used), with two permissions: `Zone · DNS · Edit`
+  + `Zone · SSL and Certificates · Edit` (the second one issues the Origin CA
+  certificate). A user token starts with `cfut_`. Then the TUI `p` form does
+  everything; pasted tokens are auto-cleaned (quotes, `Bearer`, copied
+  whitespace/RTL marks). Violations fail fast with the right fix. SSL mode →
+  **Full (strict)**.
 - **No token (manual DNS):** create the A record yourself in the dashboard,
   leave the token empty, and ngray issues a **self-signed origin cert** instead —
   set SSL mode → **Full (non-strict)**. Works end-to-end, no credentials stored.
@@ -180,7 +185,7 @@ Cloudflare Origin CA certificate valid for the domain (+ `www.`).
 | `ngray` | interactive TUI (ESC = back, q = quit) |
 | `server setup [--sandbox]` | auto-SNI → install cores → nginx → subscribe link → firewall |
 | `server status` | installed version + service state for every core |
-| `doctor` | diagnose nginx, core configs, BBR, cert expiry, foreign panels |
+| `doctor` | diagnose nginx, cores, the domain path, LIVE subscription probes (all URLs, auto-repairs unreadable-bundle 404s), certs expiry, BBR, foreign panels |
 | `client links` | print all share links + mieru config + sing-box JSON |
 | `client singbox` | print the sing-box client JSON bundle (with auto-failover groups) |
 | `sni test [host…]` | REALITY fitness (TLS1.3 + h2 + X25519) + latency, two-phase sweep (scales to 1000+) |

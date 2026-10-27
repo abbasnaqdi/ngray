@@ -2,7 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,8 +16,10 @@ import (
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
+	"github.com/abbasnaqdi/ng-ray/internal/domain"
 	"github.com/abbasnaqdi/ng-ray/internal/firewall"
 	"github.com/abbasnaqdi/ng-ray/internal/nginx"
+	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/sub"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 )
@@ -46,9 +53,165 @@ type Check struct {
 	Fix    string
 }
 
+// subProbeURLs describes every subscription transport that must answer 200
+// (server HTTP:80, self-signed HTTPS, and the CF-fronted domain when set).
+func subProbeURLs(cfg *config.Config, st *state.State, ip string) []struct {
+	name string
+	url  string
+	tls  bool
+} {
+	token := st.EnsureSubToken()
+	httpsPort := cfg.Subscription.HTTPSPort
+	if httpsPort <= 0 {
+		httpsPort = sub.DefaultHTTPSPort
+	}
+	var out []struct {
+		name string
+		url  string
+		tls  bool
+	}
+	if cfg.Subscription.Enabled {
+		// Direct-IP URLs are probed over loopback — the same nginx vhosts,
+		// immune to hairpin-NAT and local firewall quirks. The Cloudflare
+		// fronted URL is probed over the real edge path.
+		out = append(out, struct {
+			name string
+			url  string
+			tls  bool
+		}{"sub HTTP :80 (loopback)", fmt.Sprintf("http://127.0.0.1/s/%s", token), false})
+		out = append(out, struct {
+			name string
+			url  string
+			tls  bool
+		}{fmt.Sprintf("sub HTTPS :%d (loopback)", httpsPort),
+			fmt.Sprintf("https://127.0.0.1:%d/s/%s", httpsPort, token), true})
+		if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
+			out = append(out, struct {
+				name string
+				url  string
+				tls  bool
+			}{"sub via Cloudflare", fmt.Sprintf("https://%s/s/%s", cdn.XHTTPDomain(), token), false})
+		}
+	}
+	return out
+}
+
+// ProbeSub fetches every subscription URL and checks the HTTP status is 200.
+// Statuses other than 200 carry a targeted fix (404 = nginx worker cannot read
+// the bundle; connection refused = stale nginx config).
+func ProbeSub(ctx context.Context, cfg *config.Config, st *state.State, ip string) []Check {
+	var out []Check
+	client := &http.Client{Timeout: 6 * time.Second, Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // self-signed fallback
+	}}
+	for _, p := range subProbeURLs(cfg, st, ip) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
+		if err != nil {
+			out = append(out, Check{"sub " + p.name, Warn, "unbuildable URL", ""})
+			continue
+		}
+		req.Header.Set("User-Agent", "ngray-selfcheck/1")
+		resp, err := client.Do(req)
+		if err != nil {
+			out = append(out, Check{"sub " + p.name, Fail, "unreachable: " + errShort(err),
+				"ngray server setup (rebuilds nginx.conf + restarts nginx)"})
+			continue
+		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
+		resp.Body.Close()
+		switch {
+		case resp.StatusCode == 200:
+			out = append(out, Check{"sub " + p.name, Pass, "200 ✓", ""})
+		case resp.StatusCode == 404:
+			out = append(out, Check{"sub " + p.name, Fail, "404 — the bundle file is not being served",
+				"chmod 755 /etc/ngray  ·  nginx -t && systemctl restart nginx  ·  rerun server setup"})
+		default:
+			out = append(out, Check{"sub " + p.name, Warn,
+				fmt.Sprintf("HTTP %d — unexpected", resp.StatusCode), ""})
+		}
+	}
+	return out
+}
+
+func errShort(err error) string {
+	s := err.Error()
+	if i := strings.Index(s, ": "); i >= 0 && strings.Count(s, ": ") > 1 {
+		s = s[strings.LastIndex(s, ": ")+2:]
+	}
+	return s
+}
+
+// CheckSub is the stringy twin of ProbeSub used inline during server setup.
+func CheckSub(ctx context.Context, log func(string, ...any), token string, httpsPort int) {
+	client := &http.Client{Timeout: 6 * time.Second, Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}}
+	check := func(name, url string) bool {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			log("subscription self-check %s: %v", name, err)
+			return false
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			log("subscription self-check %s: UNREACHABLE (%v) — fix: nginx -t && systemctl restart nginx", name, errShort(err))
+			return false
+		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			log("subscription self-check %s: HTTP %d — fix: chmod 755 /etc/ngray && systemctl restart nginx", name, resp.StatusCode)
+			return false
+		}
+		log("subscription self-check %s: 200 ✓", name)
+		return true
+	}
+	check("HTTP :80", fmt.Sprintf("http://127.0.0.1/s/%s", token))
+	check(fmt.Sprintf("HTTPS :%d", httpsPort), fmt.Sprintf("https://127.0.0.1:%d/s/%s", httpsPort, token))
+}
+
+// certExpiryCheck reports days remaining on a PEM certificate file.
+func certExpiryCheck(cfg *config.Config) []Check {
+	var out []Check
+	type pair struct {
+		name string
+		path string
+	}
+	var pairs []pair
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
+		pairs = append(pairs, pair{"cert origin (CF)", cdn.CertFile})
+	}
+	pairs = append(pairs, pair{"cert sub (self-signed)", sub.CertFile})
+	for _, p := range pairs {
+		b, err := os.ReadFile(p.path)
+		if err != nil {
+			out = append(out, Check{p.name, Warn, "no cert file at " + p.path, ""})
+			continue
+		}
+		blk, _ := pem.Decode(b)
+		if blk == nil {
+			out = append(out, Check{p.name, Warn, "unreadable PEM", ""})
+			continue
+		}
+		crt, err := x509.ParseCertificate(blk.Bytes)
+		if err != nil {
+			out = append(out, Check{p.name, Warn, "unparseable certificate", ""})
+			continue
+		}
+		days := int(time.Until(crt.NotAfter).Hours() / 24)
+		st := Pass
+		if days < 30 {
+			st = Warn
+		}
+		out = append(out, Check{p.name, st,
+			fmt.Sprintf("expires in %d days (%s)", days, crt.NotAfter.Format("2006-01-02")), ""})
+	}
+	return out
+}
+
 // Doctor diagnoses every enabled core and the shared plumbing, returning an
-// actionable report (no changes made).
-func Doctor(ctx context.Context, cfg *config.Config) []Check {
+// actionable report (no auto-repair here; see DoctorFix).
+func Doctor(ctx context.Context, cfg *config.Config, st *state.State) []Check {
 	sys := system.New()
 	var out []Check
 
@@ -59,13 +222,22 @@ func Doctor(ctx context.Context, cfg *config.Config) []Check {
 		if b, err := sys.ReadFile(nginx.ConfPath); err == nil {
 			owned = strings.HasPrefix(string(b), nginx.Marker)
 		}
+		active := sys.IsActive(ctx, "nginx")
 		switch {
 		case !ok:
 			out = append(out, Check{"nginx config", Fail, "nginx -t failed", "ngray server setup"})
 		case !owned:
 			out = append(out, Check{"nginx config", Warn, "nginx.conf not ngray-managed", "ngray server setup (backs up + rebuilds)"})
 		default:
-			out = append(out, Check{"nginx config", Pass, "valid + ngray-managed", ""})
+			detail := "valid + ngray-managed"
+			if !active {
+				detail += " · service NOT active"
+			}
+			cst := Pass
+			if !active {
+				cst = Fail
+			}
+			out = append(out, Check{"nginx", cst, detail, "systemctl restart nginx"})
 		}
 	} else {
 		out = append(out, Check{"nginx", Fail, "not installed", "ngray server setup"})
@@ -88,6 +260,44 @@ func Doctor(ctx context.Context, cfg *config.Config) []Check {
 		}
 	}
 
+	// Subscription files + LIVE probes of every URL the clients will use.
+	if st != nil {
+		if sys.Exists(sub.BundleFile) {
+			out = append(out, Check{"subscription bundle", Pass, "file present", ""})
+		} else {
+			out = append(out, Check{"subscription bundle", Fail, sub.BundleFile + " missing", "ngray server setup"})
+		}
+		ip := st.IP
+		if ip == "" {
+			ip = "127.0.0.1"
+		}
+		out = append(out, ProbeSub(ctx, cfg, st, ip)...)
+	}
+
+	// Domain reachability (DNS → CF edge → origin TLS), no token needed.
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
+		ip := ""
+		if st != nil {
+			ip = st.IP
+		}
+		tctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		r := domain.Check(tctx, cdn.Domain, ip)
+		cancel()
+		fr := fmt.Sprintf("resolved=%d IP(s) · edge=HTTP %d · originTLS=%v", len(r.ResolvedIPs), r.EdgeStatus, r.OriginTLSOK)
+		switch {
+		case r.ViaCloudflare && r.OriginTLSOK:
+			out = append(out, Check{"domain " + cdn.Domain, Pass, "Cloudflare-proxied · " + fr, ""})
+		case len(r.ResolvedIPs) == 0:
+			out = append(out, Check{"domain " + cdn.Domain, Fail, "DNS does not resolve", "create the A record (TUI 'p  Domain / proxy')"})
+		case r.EdgeStatus == 404 || r.EdgeStatus == 502:
+			out = append(out, Check{"domain " + cdn.Domain, Pass, "proxied · edge " + fr + " (404/502 on / is normal when no web page is served)", ""})
+		default:
+			out = append(out, Check{"domain " + cdn.Domain, Warn, fr + " · verdict " + string(r.Verdict), "ngray domain check " + cdn.Domain})
+		}
+	}
+
+	out = append(out, certExpiryCheck(cfg)...)
+
 	// BBR
 	if cc, _ := sys.Run(ctx, "sysctl", "-n", "net.ipv4.tcp_congestion_control"); cc == "bbr" {
 		out = append(out, Check{"bbr", Pass, "active", ""})
@@ -99,6 +309,32 @@ func Doctor(ctx context.Context, cfg *config.Config) []Check {
 		out = append(out, Check{"foreign", Warn, f, "left untouched by ngray"})
 	}
 	return out
+}
+
+// DoctorFix applies the safe repairs doctor usually identifies (bundle
+// unreadable by the nginx worker, config not reloaded) and re-probes.
+func DoctorFix(ctx context.Context, cfg *config.Config, st *state.State, logf func(string, ...any)) []Check {
+	sys := system.New()
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	dir := filepath.Dir(sub.BundleFile)
+	if info, err := os.Stat(dir); err == nil && info.IsDir() && info.Mode().Perm()&0o055 != 0o055 {
+		if err := os.Chmod(dir, 0o755); err == nil {
+			logf("fixed: chmod 755 %s (nginx worker can read the bundle now)", dir)
+		}
+	}
+	if sys.Which("nginx") {
+		_, _ = sys.Run(ctx, "systemctl", "restart", "nginx")
+	}
+	ip := ""
+	if st != nil {
+		ip = st.IP
+	}
+	if ip == "" {
+		ip = "127.0.0.1"
+	}
+	return ProbeSub(ctx, cfg, st, ip)
 }
 
 // DetectForeign reports other proxy panels present so the operator knows ngray

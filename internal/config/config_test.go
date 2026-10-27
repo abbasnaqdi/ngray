@@ -88,3 +88,31 @@ func TestProxyRouteDuplicateRejected(t *testing.T) {
 		t.Fatal("expected duplicate proxy domain to be rejected")
 	}
 }
+
+func TestStripCDNSNIs(t *testing.T) {
+	c := Default()
+	c.Cores.Xray.Reality = []Reality{
+		{SNI: "www.debian.org", Proto: "anytls"},
+		{SNI: "vpn.example.com", Proto: "vless_vision"},
+	}
+	c.Cores.Xray.XHTTP = []XHTTP{{SNI: "www.example.com"}}
+	c.Cores.Shoes.Reality = []Reality{{SNI: "example.com", Proto: "anytls"}}
+	gone := c.StripCDNSNIs("example.com")
+	want := []string{"www.example.com", "example.com"}
+	if len(gone) != len(want) {
+		t.Fatalf("removed %v, want %v", gone, want)
+	}
+	for i, g := range gone {
+		if g != want[i] {
+			t.Fatalf("removed %v, want %v", gone, want)
+		}
+	}
+	// The fronting domain and its www sibling must now be gone; a second run
+	// is a no-op (idempotent).
+	if got := c.RouteSNIs(); got[0] != "www.debian.org" || got[1] != "vpn.example.com" {
+		t.Fatalf("RouteSNIs = %v", got)
+	}
+	if again := c.StripCDNSNIs("example.com"); len(again) != 0 {
+		t.Fatalf("second run removed %v", again)
+	}
+}

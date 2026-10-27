@@ -143,20 +143,20 @@ func cmdDomainToken() error {
 	fmt.Println(`Create the token ngray needs (2 minutes):
 
   1. Open:  https://dash.cloudflare.com/profile/api-tokens
-  2. "Create Token" → "Edit zone DNS" template → Continue.
-  3. Add a second permission:   Zone · Origin CA · Edit
-     (the template only includes Zone · DNS · Edit)
-  4. Zone Resources: "All zones" — or a specific zone that owns your domain.
-  5. Finally: "Continue to summary" → CREATE TOKEN.
-  6. Copy the long secret shown ONCE (starts with a few letters and looks
-     like 37+ random chars). It is NOT the "Token ID" next to it, NOT the
+     (My Profile → API Tokens — NOT "Manage Account → Account API Tokens"!
+     Account-owned tokens start with cfat_ and ngray CANNOT use them.)
+  2. "Create Token" → "Create Custom Token".
+  3. Permissions (both):
+       · Zone · DNS · Edit                → create/update the A record
+       · Zone · SSL and Certificates · Edit → issue the Origin CA cert
+  4. Zone Resources: a specific zone that owns your domain.
+  5. "Continue to summary" → CREATE TOKEN.
+  6. Copy the long secret shown ONCE. A user token starts with cfut_
+     (or is a legacy ~40-char string). It is NOT the Token ID, NOT the
      Account ID, NOT the Global API Key.
   7. Paste it into the TUI:  Domain / proxy (p) → CF token → enter → paste.
      It verifies once, then is cached in /etc/ngray/cf_token (mode 0600).
-
-Permissions the token needs:
-  · Zone · DNS          Edit    → create/update the proxied A record
-  · Zone · Origin CA    Edit    → request the Origin CA certificate
+     Or test from a shell:  NGRAY_CF_TOKEN='<secret>' ngray domain verify
 
 Then:
   p  Domain / proxy  → Apply          (cert + DNS + config)
@@ -187,7 +187,7 @@ func cmdDomainVerify() error {
 	fmt.Println("✓ token is valid — caching it in /etc/ngray/cf_token (0600) for the TUI")
 	if os.Geteuid() == 0 {
 		dir := filepath.Dir(cf.TokenFileOverride())
-		if err := os.MkdirAll(dir, 0o750); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 		return os.WriteFile(cf.TokenFileOverride(), []byte(cf.NormalizeToken(token)), 0o600)
@@ -556,7 +556,7 @@ func cmdDomainIssue(args []string) error {
 // truncated cert/key, and tightens the mode even for a pre-existing file.
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".ngray-*")
@@ -742,18 +742,42 @@ func cmdProxy(args []string) error {
 	}
 }
 
-// cmdDoctor diagnoses cores, nginx, BBR and foreign panels.
+// cmdDoctor diagnoses nginx, cores, the domain path, subscription liveness,
+// certificates, BBR and foreign panels.
 func cmdDoctor() error {
 	cfg, err := config.LoadOrDefault(config.Path())
 	if err != nil {
 		return err
 	}
-	checks := server.Doctor(context.Background(), cfg)
+	st, _ := state.Load(state.Path())
+	checks := server.Doctor(context.Background(), cfg, st)
 	color := map[server.Status]string{server.Pass: "\033[32m", server.Warn: "\033[33m", server.Fail: "\033[31m"}
 	for _, c := range checks {
-		fmt.Printf("  %s%-5s\033[0m %-14s %s\n", color[c.Status], c.Status, c.Name, c.Detail)
+		fmt.Printf("  %s%-5s\033[0m %-20s %s\n", color[c.Status], c.Status, c.Name, c.Detail)
 		if c.Fix != "" && c.Status != server.Pass {
 			fmt.Printf("        \033[2mfix: %s\033[0m\n", c.Fix)
+		}
+	}
+	if os.Geteuid() == 0 {
+		needsFix := false
+		ip := "127.0.0.1"
+		if st != nil {
+			if st.IP != "" {
+				ip = st.IP
+			}
+			for _, c := range server.ProbeSub(context.Background(), cfg, st, ip) {
+				if c.Status == server.Fail {
+					needsFix = true
+				}
+			}
+		}
+		if needsFix {
+			fmt.Println("\n  applying safe repairs (bundle perms + nginx restart)…")
+			for _, c := range server.DoctorFix(context.Background(), cfg, st,
+				func(f string, a ...any) { fmt.Printf("  🛠 "+f+"\n", a...) }) {
+				mark := color[c.Status]
+				fmt.Printf("  %s%-5s\033[0m %-20s %s\n", mark, c.Status, c.Name, c.Detail)
+			}
 		}
 	}
 	return nil

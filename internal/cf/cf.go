@@ -20,6 +20,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const defaultBase = "https://api.cloudflare.com/client/v4"
@@ -102,36 +103,104 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (json.Ra
 }
 
 // NormalizeToken strips the usual copy artifacts around a Cloudflare secret:
-// surrounding quotes, a "Bearer " prefix and stray whitespace/newlines.
+// surrounding quotes, a "Bearer " prefix, and — anywhere in the string — every
+// space/invisible mark. Chats wrap long secrets and RTL text inserts
+// zero-width characters, and both turn a valid token into "Invalid API
+// Token". Cloudflare credentials contain only [A-Za-z0-9_-], so anything
+// outside that alphabet is copy noise.
 func NormalizeToken(t string) string {
 	t = strings.TrimSpace(t)
 	t = strings.Trim(t, "\"'`")
-	t = strings.TrimSpace(t)
-	if l := strings.ToLower(t); strings.HasPrefix(l, "bearer ") {
-		t = strings.TrimSpace(t[7:])
+	var b strings.Builder
+	for _, r := range t {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	t = b.String()
+	// "Bearer " died in the whitespace purge above, so strip the bare word.
+	if strings.HasPrefix(strings.ToLower(t), "bearer") && len(t) > 6 {
+		t = t[6:]
 	}
 	return t
 }
 
-// Diagnostics renders the shape of a token WITHOUT revealing it — the only
-// thing exposed is length + first/last characters, enough to spot a truncated
-// or wrong-type paste.
-func Diagnostics(t string) string {
-	r := []rune(NormalizeToken(t))
-	switch {
-	case len(r) == 0:
-		return "(empty)"
-	case len(r) <= 8:
-		return fmt.Sprintf("len=%d (suspiciously short — an API Token is ~40 chars)", len(r))
+// TokenKind classifies a Cloudflare credential by its scannable prefix
+// (cfut_ user tokens and cfat_ account-owned tokens were introduced when
+// Cloudflare moved to prefixed formats; legacy tokens are unprefixed).
+func TokenKind(t string) string {
+	if strings.HasPrefix(strings.TrimSpace(t), "v1.0-") {
+		return "Origin CA key (v1.0- format)" // dots/slashes die in NormalizeToken
 	}
-	return fmt.Sprintf("len=%d head=%-4s tail=%-4s", len(r), string(r[:4]), string(r[len(r)-4:]))
+	t = NormalizeToken(t)
+	switch {
+	case strings.HasPrefix(t, "cfut_"):
+		return "user API token (cfut_ format)"
+	case strings.HasPrefix(t, "cfat_"):
+		return "ACCOUNT-owned token (cfat_ format)"
+	case strings.HasPrefix(t, "cfk_"):
+		return "Global API Key (cfk_ format)"
+	case strings.HasPrefix(t, "v1.0-"):
+		return "Origin CA key (v1.0- format)"
+	case len(t) == 37 && isHex(t):
+		return "Global API Key (legacy 37-char hex)"
+	}
+	return "legacy API token (unprefixed)"
 }
 
-// VerifyToken checks the token with the /user/tokens/verify endpoint and adds
-// the two common misconfiguration hints when the failure looks like a wrong
-// credential type (the #1 paste error is the Global API Key or an Origin CA
-// key instead of an API Token).
+func isHex(s string) bool {
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// Diagnostics renders the shape of a token WITHOUT revealing it — kind,
+// length and first/last characters, plus a note when copy noise was stripped.
+func Diagnostics(t string) string {
+	if strings.TrimSpace(t) == "" {
+		return "(empty)"
+	}
+	r := []rune(NormalizeToken(t))
+	kind := TokenKind(t)
+	switch {
+	case len(r) == 0:
+		return "(empty after cleaning) — " + kind
+	case len(r) <= 8:
+		return fmt.Sprintf("%s · len=%d (suspiciously short)", kind, len(r))
+	}
+	out := fmt.Sprintf("%s · len=%d head=%-4s tail=%-4s", kind, len(r), string(r[:4]), string(r[len(r)-4:]))
+	if len([]rune(t)) != len(r) {
+		out += fmt.Sprintf(" (%d chars of copy noise were stripped — double-check the source)", len([]rune(t))-len(r))
+	}
+	return out
+}
+
+// VerifyToken checks the token with the /user/tokens/verify endpoint, failing
+// fast with actionable advice when the credential is a known wrong TYPE
+// (account-owned token, Global/API key, Origin CA key), and adding the common
+// misconfiguration hints when Cloudflare itself rejects the credential.
 func (c *Client) VerifyToken(ctx context.Context) error {
+	kind := TokenKind(c.Token)
+	switch {
+	case strings.Contains(kind, "ACCOUNT-owned"):
+		return fmt.Errorf( // account tokens cannot use the user-verify endpoint and
+			// typically lack zone permissions — send the operator to the right page.
+			"this is an ACCOUNT-owned token (created under Manage Account → Account API Tokens)\n" +
+				"  ngray needs a USER API Token instead — on Cloudflare:\n" +
+				"dash.cloudflare.com/profile/api-tokens → Create Token → Edit zone DNS\n" +
+				"  the correct token's value starts with cfut_")
+	case strings.Contains(kind, "Global API Key"):
+		return fmt.Errorf("this is the Global API Key — it is not supported (full-access, wrong header)\n" +
+			"  create a scoped USER API Token instead:\n" +
+			"dash.cloudflare.com/profile/api-tokens → Create Token → Edit zone DNS")
+	case strings.Contains(kind, "Origin CA key"):
+		return fmt.Errorf("this is an Origin CA Key — not an API token usable for DNS/config\n" +
+			"  create a USER API Token instead:\n" +
+			"dash.cloudflare.com/profile/api-tokens → Create Token → Edit zone DNS")
+	}
 	_, err := c.do(ctx, http.MethodGet, "/user/tokens/verify", nil)
 	if err == nil {
 		return nil
@@ -139,9 +208,14 @@ func (c *Client) VerifyToken(ctx context.Context) error {
 	e := err.Error()
 	switch {
 	case strings.Contains(e, "9109") || strings.Contains(e, "not a valid token") ||
-		strings.Contains(e, "Authentication error") || strings.Contains(e, "400 Bad Request"):
-		return fmt.Errorf("%w\n  hint: use an API Token, not the Global API Key or a password:\n  dash.cloudflare.com → My Profile → API Tokens → Create Token\n  permissions: Zone · DNS · Edit   (+ Zone · Origin CA · Edit not needed)",
-			err)
+		strings.Contains(e, "Authentication error") || strings.Contains(e, "Invalid API Token") ||
+		strings.Contains(e, "400 Bad Request"):
+		return fmt.Errorf("%w\n  hint: create a USER API Token (not Global API Key, not Token ID, not password):\n"+
+			"dash.cloudflare.com/profile/api-tokens → Create Token → Create Custom Token\n"+
+			"  permissions: Zone · DNS · Edit  +  Zone · SSL and Certificates · Edit\n"+
+			"  (SSL and Certificates Edit is what issues the Origin CA certificate)\n"+
+			"  zone resources: the zone that owns your domain; copy the long secret\n"+
+			"  shown once — a user token starts with cfut_ or is a 40-char string", err)
 	}
 	return err
 }

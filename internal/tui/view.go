@@ -12,18 +12,19 @@ import (
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 
-// Warm, muted palette inspired by Claude Code / Codex: one accent, dimmed
-// chrome, soft body text. Colour is used sparingly so the layout carries the
-// hierarchy instead of a rainbow of hues.
+// Warm palette inspired by Claude Code / Codex, ADAPTIVE: every colour is
+// defined for dark AND light terminals, so body text is never washed out
+// (near-white 254 was invisible on a light background). Colour is used
+// sparingly; the layout carries the hierarchy.
 var (
-	colorAccent = lipgloss.Color("209") // warm orange — focus / primary
-	colorText   = lipgloss.Color("254") // bright body text (readable on any bg)
-	colorMuted  = lipgloss.Color("245") // inactive labels / status
-	colorDim    = lipgloss.Color("239") // rules, hints, meta
-	colorOK     = lipgloss.Color("114")
-	colorErr    = lipgloss.Color("203")
-	colorWarn   = lipgloss.Color("214")
-	colorSelBg  = lipgloss.Color("236")
+	colorAccent = lipgloss.AdaptiveColor{Light: "130", Dark: "209"} // orange — focus / primary
+	colorText   = lipgloss.AdaptiveColor{Light: "234", Dark: "254"} // body text, readable on any bg
+	colorMuted  = lipgloss.AdaptiveColor{Light: "242", Dark: "245"} // inactive labels / status
+	colorDim    = lipgloss.AdaptiveColor{Light: "244", Dark: "239"} // rules, hints, meta
+	colorOK     = lipgloss.AdaptiveColor{Light: "28", Dark: "114"}
+	colorErr    = lipgloss.AdaptiveColor{Light: "160", Dark: "203"}
+	colorWarn   = lipgloss.AdaptiveColor{Light: "130", Dark: "214"}
+	colorSelBg  = lipgloss.AdaptiveColor{Light: "252", Dark: "236"}
 
 	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	accentStyle = lipgloss.NewStyle().Foreground(colorAccent)
@@ -282,9 +283,11 @@ func (m Model) viewDomainForm() string {
 	b.WriteString(dimStyle.Render(strings.Join([]string{
 		"  Domain  — just the name, NO https:// and NO port. Example:",
 		"            vpn.example.com (or www.example.com).",
-		"  CF token — an API Token (40 chars), NOT the Global API Key:",
-		"            dash.cloudflare.com → My Profile → API Tokens →",
-		"            Create Token → Zone · DNS · Edit (+ zone select).",
+		"  CF token — a USER API Token from My Profile → API Tokens (starts",
+		"            with cfut_, or a legacy ~40-char string; NOT cfat_ —",
+		"            account-owned tokens, NOT the Global API Key, NOT the",
+		"            Token ID): dash.cloudflare.com/profile/api-tokens →",
+		"            Create Token → Edit zone DNS + SSL and Certificates.",
 		"            Copy the LONG secret, not the Token ID. Cached",
 		"            in /etc/ngray/cf_token (0600) after it verifies.",
 		"            Optional: leave empty → a self-signed origin cert is",

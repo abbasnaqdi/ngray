@@ -213,10 +213,14 @@ func taskSNI(ctx context.Context, emit func(string)) error {
 func taskStatus(ctx context.Context, emit func(string)) error {
 	sys := system.New()
 	cfg, _ := config.LoadOrDefault(config.Path())
+	if cfg == nil {
+		return nil
+	}
+	st, _ := state.Load(state.Path())
 	for _, c := range cores.Registry() {
 		ver, ok := c.Installed(ctx, sys)
 		if !ok {
-			if cfg != nil && !c.Enabled(cfg) {
+			if !c.Enabled(cfg) {
 				emit(dimStyle.Render(pad(c.Name(), 12) + "disabled  (enable in config.yml)"))
 			} else {
 				emit(errStyle.Render(pad(c.Name(), 12)) + dimStyle.Render("not installed — run server setup"))
@@ -234,6 +238,33 @@ func taskStatus(ctx context.Context, emit func(string)) error {
 			line += "  " + badge.Render("⬆ "+latest)
 		}
 		emit(line)
+	}
+
+	// Beyond the cores: nginx, the domain path, subscription liveness and the
+	// certificates — the full picture, one screen.
+	emit("")
+	for _, c := range server.Doctor(ctx, cfg, st) {
+		switch {
+		case strings.HasPrefix(c.Name, "sub "), strings.HasPrefix(c.Name, "nginx"), strings.HasPrefix(c.Name, "domain "),
+			strings.HasPrefix(c.Name, "cert "):
+			mark := dimStyle.Render("PASS")
+			switch c.Status {
+			case server.Pass:
+				mark = okStyle.Render("PASS")
+			case server.Fail:
+				mark = errStyle.Render("FAIL")
+			case server.Warn:
+				mark = warnStyle.Render("WARN")
+			}
+			emit(mark + " " + pad(c.Name, 26) + c.Detail)
+			if c.Fix != "" && c.Status != server.Pass {
+				emit(dimStyle.Render("      fix: " + c.Fix))
+			}
+		}
+	}
+	if st != nil && len(st.Deploy.Endpoints) > 0 {
+		emit("")
+		emit(dimStyle.Render(fmt.Sprintf("%d endpoint(s) configured · run 'ngray doctor' for the full diagnosis", len(st.Deploy.Endpoints))))
 	}
 	return nil
 }
@@ -276,7 +307,8 @@ func taskDoctor(ctx context.Context, emit func(string)) error {
 	if err != nil {
 		return err
 	}
-	for _, c := range server.Doctor(ctx, cfg) {
+	st, _ := state.Load(state.Path())
+	for _, c := range server.Doctor(ctx, cfg, st) {
 		mark := dimStyle.Render(string(c.Status))
 		switch c.Status {
 		case server.Pass:
@@ -284,9 +316,40 @@ func taskDoctor(ctx context.Context, emit func(string)) error {
 		case server.Fail:
 			mark = errStyle.Render(string(c.Status))
 		}
-		emit(mark + " " + pad(c.Name, 14) + c.Detail)
+		emit(mark + " " + pad(c.Name, 18) + c.Detail)
 		if c.Fix != "" && c.Status != server.Pass {
 			emit(dimStyle.Render("      fix: " + c.Fix))
+		}
+	}
+	// Root + at least one live sub failure: apply the safe repairs (perms,
+	// nginx restart) and show whether the re-probe turned green.
+	if st != nil && os.Geteuid() == 0 {
+		ip := st.IP
+		if ip == "" {
+			ip = "127.0.0.1"
+		}
+		needsFix := false
+		for _, c := range server.ProbeSub(ctx, cfg, st, ip) {
+			if c.Status == server.Fail {
+				needsFix = true
+			}
+		}
+		if needsFix {
+			fixed := 0
+			for _, c := range server.DoctorFix(ctx, cfg, st, func(f string, a ...any) {
+				emit("  🛠 " + fmt.Sprintf(f, a...))
+			}) {
+				mark := errStyle.Render(string(c.Status))
+				if c.Status == server.Pass {
+					mark = okStyle.Render(string(c.Status) + " after fix")
+					fixed++
+				}
+				emit(mark + " " + pad(c.Name, 18) + c.Detail)
+			}
+			emit("")
+			if fixed > 0 {
+				emit(okStyle.Render(fmt.Sprintf("✓ %d subscription check(s) repaired — re-import the links below the doctor report", fixed)))
+			}
 		}
 	}
 	return nil
@@ -351,7 +414,11 @@ func taskDomainCheck(ctx context.Context, emit func(string), dom string) error {
 				}
 			}
 			if !routed {
-				emit("  ⤷ HTTP 502 on / is EXPECTED here — you have no reverse-proxy target for this domain; the subscription lives at https://www." + dom + "/s/<token>, not on the root page")
+				sub := dom
+				if !strings.HasPrefix(sub, "www.") {
+					sub = "www." + sub
+				}
+				emit("  ⤷ HTTP 502 on / is EXPECTED here — you have no reverse-proxy target for this domain; the subscription lives at https://" + sub + "/s/<token>, not on the root page")
 			}
 		}
 	}
@@ -386,7 +453,7 @@ func cfEnsure(ctx context.Context, emit func(string), domain string, wantDNS boo
 	c := cf.New(token)
 	emit(dimStyle.Render("• ") + "verifying Cloudflare token…")
 	if err := c.VerifyToken(ctx); err != nil {
-		return fmt.Errorf("Cloudflare token rejected: %w\n  received: %s\n  hint: an API Token is ~40 chars from dash.cloudflare.com → My Profile → API Tokens ('Copy' the long secret — NOT the Token ID, NOT the Global API Key)\n  fix: re-enter fresh in the form, or test from a shell: NGRAY_CF_TOKEN='<token>' ngray domain verify",
+		return fmt.Errorf("Cloudflare rejected this credential: %w\n  received: %s\n  fix: re-enter fresh in the form (user token cfut_ — not cfat_, not Token ID), or test from a shell: NGRAY_CF_TOKEN='<token>' ngray domain verify",
 			err, cf.Diagnostics(token))
 	}
 	emit(okStyle.Render("✓") + " token valid")
@@ -512,6 +579,12 @@ func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
 		}
 		cfg.ProxyRoutes = kept
 	}
+	// The fronting domain must never sit in a core's REALITY/XHTTP SNI list —
+	// nginx routes one SNI to one backend and duplicates fail validation.
+	if gone := cfg.StripCDNSNIs(domain); len(gone) > 0 {
+		emit(warnStyle.Render("! ") + "removed " + strings.Join(gone, ", ") +
+			" from the REALITY/XHTTP SNI list(s) — the fronting domain already routes via Cloudflare")
+	}
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -568,7 +641,7 @@ func taskDomain(ctx context.Context, emit func(string), d domainForm) error {
 // writeAtomic writes data via a temp file + rename and tightens the mode.
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".ngray-*")

@@ -14,10 +14,18 @@ func (e *Env) Path(p string) string {
 }
 
 // WriteFile creates parent dirs and writes data at the (root-prefixed) path.
+// Dirs are 0755 (traverse-allowed): nginx workers run as www-data, and a
+// root:root 0750 /etc/ngray once made every subscription file unreadable
+// ("404 Not Found nginx" on ALL sub URLs). Files keep their own modes.
+// An existing too-tight dir is healed to 0755 on every write.
 func (e *Env) WriteFile(path string, data []byte, mode os.FileMode) error {
 	p := e.Path(path)
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
+	}
+	if info, err := os.Stat(dir); err == nil && info.IsDir() && info.Mode().Perm()&0o005 != 0o005 {
+		_ = os.Chmod(dir, 0o755) // heal a too-tight dir so nginx workers can traverse
 	}
 	return os.WriteFile(p, data, mode)
 }
@@ -26,7 +34,7 @@ func (e *Env) WriteString(path, data string, mode os.FileMode) error {
 	return e.WriteFile(path, []byte(data), mode)
 }
 
-func (e *Env) MkdirAll(path string) error { return os.MkdirAll(e.Path(path), 0o750) }
+func (e *Env) MkdirAll(path string) error { return os.MkdirAll(e.Path(path), 0o755) }
 
 func (e *Env) ReadFile(path string) ([]byte, error) { return os.ReadFile(e.Path(path)) }
 

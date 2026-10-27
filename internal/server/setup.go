@@ -68,6 +68,13 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Legacy configs may carry the fronting domain inside a core SNI list —
+	// that never validates (one SNI, one backend). Clean it before anything.
+	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Domain != "" {
+		if gone := cfg.StripCDNSNIs(cdn.Domain); len(gone) > 0 {
+			o.log("removed %v from core SNI lists — the fronting domain already routes via Cloudflare", gone)
+		}
+	}
 
 	if freshInstall && !sys.DryRun {
 		candidatesPath := o.CandidatesPath
@@ -98,6 +105,8 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	var routes []nginx.Route
 	var endpoints []links.Endpoint
 	notes := map[string]string{}
+	var subToken string
+	var subHTTPSPort int
 
 	for _, core := range cores.Registry() {
 		if !core.Enabled(cfg) {
@@ -141,7 +150,8 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	deploy := &state.Deploy{Endpoints: endpoints, Notes: notes}
 
 	if cfg.Subscription.Enabled {
-		token := st.EnsureSubToken()
+		subToken = st.EnsureSubToken()
+		token := subToken
 
 		// Self-signed cert: regenerate if missing or if the server IP changed.
 		if !sys.CertHasIPSAN(sub.CertFile, ip) {
@@ -171,6 +181,7 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		if httpsPort <= 0 {
 			httpsPort = sub.DefaultHTTPSPort
 		}
+		subHTTPSPort = httpsPort
 
 		ngCfg.Sub = &nginx.Subscription{
 			Dir:         sub.Dir,
@@ -256,6 +267,13 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	}
 
 	restartServices(ctx, sys, cfg, o)
+
+	// Self-check the subscription right after the reload: fetch it over
+	// loopback so a broken serve (unreadable directory, stale nginx config)
+	// is reported in the same run, with the fix attached.
+	if ngCfg.Sub != nil && subToken != "" && !o.Sandbox && !sys.DryRun {
+		CheckSub(ctx, o.log, subToken, subHTTPSPort)
+	}
 
 	if err := applyFirewall(ctx, sys, cfg, st, o); err != nil {
 		o.log("warning: firewall: %v", err)
