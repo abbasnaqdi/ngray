@@ -79,9 +79,12 @@ func Check(ctx context.Context, domain, serverIP string) Report {
 }
 
 // cfOriginError reports whether status is a Cloudflare origin-side failure.
+// 502 included: CF reached the origin but the proxied target (e.g. a service
+// port nothing listens on) answered badly — for a subscription-only setup
+// this is expected on "/" and is NOT a broken tunnel.
 func cfOriginError(status int) bool {
 	switch status {
-	case 521, 522, 523, 524, 525, 526:
+	case 502, 521, 522, 523, 524, 525, 526:
 		return true
 	}
 	return false

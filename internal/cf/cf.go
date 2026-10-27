@@ -101,6 +101,32 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (json.Ra
 	return ar.Result, nil
 }
 
+// NormalizeToken strips the usual copy artifacts around a Cloudflare secret:
+// surrounding quotes, a "Bearer " prefix and stray whitespace/newlines.
+func NormalizeToken(t string) string {
+	t = strings.TrimSpace(t)
+	t = strings.Trim(t, "\"'`")
+	t = strings.TrimSpace(t)
+	if l := strings.ToLower(t); strings.HasPrefix(l, "bearer ") {
+		t = strings.TrimSpace(t[7:])
+	}
+	return t
+}
+
+// Diagnostics renders the shape of a token WITHOUT revealing it — the only
+// thing exposed is length + first/last characters, enough to spot a truncated
+// or wrong-type paste.
+func Diagnostics(t string) string {
+	r := []rune(NormalizeToken(t))
+	switch {
+	case len(r) == 0:
+		return "(empty)"
+	case len(r) <= 8:
+		return fmt.Sprintf("len=%d (suspiciously short — an API Token is ~40 chars)", len(r))
+	}
+	return fmt.Sprintf("len=%d head=%-4s tail=%-4s", len(r), string(r[:4]), string(r[len(r)-4:]))
+}
+
 // VerifyToken checks the token with the /user/tokens/verify endpoint and adds
 // the two common misconfiguration hints when the failure looks like a wrong
 // credential type (the #1 paste error is the Global API Key or an Origin CA

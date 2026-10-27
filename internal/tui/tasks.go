@@ -340,6 +340,21 @@ func taskDomainCheck(ctx context.Context, emit func(string), dom string) error {
 	for _, a := range report.Advice {
 		emit("  ⤷ " + a)
 	}
+	// 502 on "/" is normal for a subscription-only setup: nothing is expected
+	// to answer a web page at the apex unless a proxy target was configured.
+	if report.EdgeStatus == 502 {
+		if cfg, err := config.LoadOrDefault(config.Path()); err == nil {
+			routed := false
+			for _, pr := range cfg.ProxyRoutes {
+				if pr.Domain == dom {
+					routed = true
+				}
+			}
+			if !routed {
+				emit("  ⤷ HTTP 502 on / is EXPECTED here — you have no reverse-proxy target for this domain; the subscription lives at https://www." + dom + "/s/<token>, not on the root page")
+			}
+		}
+	}
 	emit("")
 	emit(dimStyle.Render("  hint: `ngray domain check " + dom + " [--ip YOUR.SERVER.IP]` prints the full report any time"))
 	return nil
@@ -353,7 +368,6 @@ func resolve(r domain.Report) []string {
 	return []string{"(none)"}
 }
 
-// returning an inline hint instead of a dead stop at CF-apply time.
 // cfEnsure verifies the CF token, then (re)issues the Origin cert and upserts
 // the DNS A record. Shared by the domain form and the setup wizard's
 // domain-fronting toggle. Token candidate order: explicit override (the form
@@ -361,8 +375,9 @@ func resolve(r domain.Report) []string {
 // (caller decides), so a missing token is not a fatal setup error.
 func cfEnsure(ctx context.Context, emit func(string), domain string, wantDNS bool, tokenCandidate string) error {
 	token := tokenCandidate
+	token = cf.NormalizeToken(token)
 	if token == "" {
-		token = cf.TokenFromEnvOrFile()
+		token = cf.NormalizeToken(cf.TokenFromEnvOrFile())
 	}
 	if token == "" {
 		emit(warnStyle.Render("! ") + "no Cloudflare token — skipping cert/DNS (set it in the 'p  Domain / proxy' form first)")
@@ -371,7 +386,8 @@ func cfEnsure(ctx context.Context, emit func(string), domain string, wantDNS boo
 	c := cf.New(token)
 	emit(dimStyle.Render("• ") + "verifying Cloudflare token…")
 	if err := c.VerifyToken(ctx); err != nil {
-		return fmt.Errorf("Cloudflare token rejected: %w\n  hint: the token must be an API Token (40 chars) from dash.cloudflare.com → My Profile → API Tokens; if you pasted it earlier into the cached file, re-enter it fresh in the form", err)
+		return fmt.Errorf("Cloudflare token rejected: %w\n  received: %s\n  hint: an API Token is ~40 chars from dash.cloudflare.com → My Profile → API Tokens ('Copy' the long secret — NOT the Token ID, NOT the Global API Key)\n  fix: re-enter fresh in the form, or test from a shell: NGRAY_CF_TOKEN='<token>' ngray domain verify",
+			err, cf.Diagnostics(token))
 	}
 	emit(okStyle.Render("✓") + " token valid")
 	// Only cache the token AFTER it passed verification — a wrong paste never

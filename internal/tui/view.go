@@ -336,7 +336,7 @@ func (m Model) viewTask() string {
 	default:
 		head = okStyle.Render("✓ "+m.taskName) + "  " + dimStyle.Render("done")
 	}
-	body := taskPanel.Width(maxInt(m.width-4, 20)).Render(m.vp.View())
+	body := taskPanel.Width(maxInt(m.width-4, 20)).Render(strings.TrimRight(m.vp.View(), "\n"))
 	foot := mutedStyle.Render("  esc back  ·  ↑↓ scroll  ·  q quit") + "  " + dimStyle.Render("v"+version.Version)
 	if m.restartAfter && m.taskErr == nil {
 		foot = mutedStyle.Render("  enter restart to the new binary  ·  esc stay here") + "  " + dimStyle.Render("v"+version.Version)
@@ -368,7 +368,7 @@ func (m Model) joinWrapped() string {
 	}
 	out := make([]string, 0, len(m.lines))
 	for _, l := range m.lines {
-		out = append(out, wrapLine(l, w))
+		out = append(out, wrapLineSoft(l, w))
 	}
 	return joinLines(out)
 }
@@ -407,4 +407,28 @@ func wrapLine(s string, width int) string {
 	}
 	sb.WriteString(s)
 	return sb.String()
+}
+
+// wrapLineSoft wraps at word boundaries when possible and only falls back to
+// hard cuts for single long tokens — "any tim\ne" class of breaks disappear.
+func wrapLineSoft(s string, width int) string {
+	if len(s) <= width {
+		return s
+	}
+	if r := []rune(s); len(r) > 0 { // wrap on runes, not bytes
+		if len(r) <= width {
+			return s
+		}
+	}
+	var out []string
+	for len(s) > width {
+		cut := strings.LastIndex(s[:width+1], " ")
+		if cut < width/2 {
+			cut = width // single long token: hard cut keeps content correct
+		}
+		out = append(out, s[:cut])
+		s = strings.TrimLeft(s[cut:], " ")
+	}
+	out = append(out, s)
+	return strings.Join(out, "\n")
 }

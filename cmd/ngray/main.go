@@ -171,6 +171,31 @@ Then:
 	return nil
 }
 
+// cmdDomainVerify tests the token from the environment (or /etc/ngray/cf_token)
+// directly against Cloudflare, printing masked diagnostics — the fastest way
+// to answer "why is my token rejected?!" from a shell.
+func cmdDomainVerify() error {
+	token := cf.TokenFromEnvOrFile()
+	if token == "" {
+		return fmt.Errorf("no token: set NGRAY_CF_TOKEN='<secret>' or write it to /etc/ngray/cf_token (0600)")
+	}
+	fmt.Printf("token: %s\n", cf.Diagnostics(token))
+	c := cf.New(cf.NormalizeToken(token))
+	if err := c.VerifyToken(context.Background()); err != nil {
+		return fmt.Errorf("cloudflare rejected this token: %v\nget a fresh one per `ngray domain token`", err)
+	}
+	fmt.Println("✓ token is valid — caching it in /etc/ngray/cf_token (0600) for the TUI")
+	if os.Geteuid() == 0 {
+		dir := filepath.Dir(cf.TokenFileOverride())
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		return os.WriteFile(cf.TokenFileOverride(), []byte(cf.NormalizeToken(token)), 0o600)
+	}
+	fmt.Println("  note: not root — run with sudo to cache into /etc/ngray/cf_token")
+	return nil
+}
+
 // cmdSNI tests SNI candidates for REALITY fitness.
 func cmdSNI(args []string) error {
 	if len(args) > 0 && args[0] == "discover" {
@@ -348,6 +373,8 @@ func cmdDomain(args []string) error {
 			return cmdDomainSet(args[1:])
 		case "token":
 			return cmdDomainToken()
+		case "verify":
+			return cmdDomainVerify()
 		}
 	}
 	if len(args) == 0 || args[0] != "check" {
