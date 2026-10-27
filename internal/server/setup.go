@@ -293,6 +293,16 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 			default:
 				const subBackend = 8444
 				ngCfg.Routes = append(ngCfg.Routes, nginx.Route{SNI: subDomain, Backend: subBackend})
+				// The APEX SNI (bare domain, no www) also lands on the
+				// subscription TLS server: previously the apex had NO mux
+				// route after the cdnws inbound was removed, so CF's edge
+				// handshake fell through to the HTTP sink → CF error 525 /
+				// domain check originTLS=false. Now the apex completes TLS
+				// (origin cert covers it) and `/` answers 404-as-expected.
+				if apex := strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(cdn.Domain), "www."), "."); apex != "" && apex != subDomain {
+					ngCfg.Routes = append(ngCfg.Routes, nginx.Route{SNI: apex, Backend: subBackend})
+					o.log("apex SNI %s also terminates on the subscription TLS server (fixes CF 525)", apex)
+				}
 				ngCfg.CDNSub = &nginx.CDNSub{
 					Domain: subDomain, Backend: subBackend,
 					CertFile: cdn.CertFile, KeyFile: cdn.KeyFile,
@@ -622,9 +632,13 @@ func portList(ports []int) string {
 var listenPort = regexp.MustCompile(`listen\s+(?:[^\s;]*:\n?)?(\d+)`)
 
 // ensureDirectDomain creates/updates the DNS-ONLY direct.<domain> A record via
-// the cached CF token. Returns "" when no domain, no token, or sandbox — the
-// caller then skips the domain-form clones (IP configs remain unaffected).
+// the cached CF token. OPT-IN via server.direct_domain (the user's default is
+// IP-only — the record surprised them). Returns "" when disabled, no domain,
+// no token, or sandbox — the caller then skips the domain-form clones.
 func ensureDirectDomain(ctx context.Context, sys *system.Env, cfg *config.Config, ip string, st *state.State, o Options) string {
+	if !cfg.Server.DirectDomain {
+		return ""
+	}
 	cdn := cfg.Cores.Xray.CDN
 	if cdn == nil || !cdn.Enabled || cdn.Domain == "" {
 		return st.DirectDomain

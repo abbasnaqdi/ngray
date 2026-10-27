@@ -29,7 +29,7 @@ func RegenerateSNIs(ctx context.Context, candidatesPath, configPath string, cfg 
 // maxPerCore is the DEFAULT REALITY budget per core. The active budget comes
 // from config server.sni_max_per_core (see sniBudget), so operators can raise
 // the endpoint volume without a rebuild.
-const maxPerCore = 96
+const maxPerCore = 160
 
 // maxXHTTP is the default XHTTP cap; the active cap scales with the budget.
 func xHTTPCap(budget int) int {

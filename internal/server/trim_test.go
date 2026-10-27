@@ -49,8 +49,8 @@ func TestSniBudgetKnob(t *testing.T) {
 	}
 	cfg.Server.SNIMaxPerCore = 0
 	b, x = sniLimits(cfg)
-	if b != 96 {
-		t.Fatalf("default budget = %d, want 96", b)
+	if b != 160 {
+		t.Fatalf("default budget = %d, want 160", b)
 	}
 }
 

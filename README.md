@@ -245,7 +245,9 @@ Generated links import into:
 
 Add one URL in any app; all configs appear and auto-update, and the sing-box `auto` group health-checks every endpoint so dead ones are skipped automatically. **mieru has no share-link URI**, so it rides only the **sing-box JSON** bundle (`/sb/`) — import that one in NekoBox/husi to get it. The raw mieru JSON is also printed by `client links` for the standalone mieru app.
 
-**Endpoint pairs:** every SNI is served as a **pair** — one direct-IP link (`<core>-…-<sni>`) and one Cloudflare-fronted twin (`cf-ws-<sni>` on `https://www.DOMAIN/…`, no port, trusted cert). The TUI menu 2 is a pure link sheet: one URI per line, **no visual wrapping**; copying never depends on dragging wrapped text — `y` copies the primary link, `a` copies every link on the sheet, `1`–`9` copy exact entries (all via OSC 52, over SSH too). The plain-CLI `ngray client links` prints the same sheet unwrapped for scrollback copying.
+**TUI menu 2 prints ONLY the subscription links** — importing the mixed link brings every config into the client automatically; the full raw URI list stays in the CLI (`ngray client links`). Copying always goes over OSC 52: `y` primary, `a` all, `1`–`9` exact entries — never by dragging wrapped text.
+
+**`server.direct_domain: true` (opt-in, default off)** — creates a DNS-only (grey cloud) A record `direct.<domain>` → server IP and mirrors each direct-IP config with a domain address so no IP string has to appear in a client export. Traffic never touches Cloudflare. Delete the record in the CF dashboard any time; it is inert when the flag is off.
 
 ---
 
@@ -280,7 +282,7 @@ or the last full sweep is older than 7 days (`last_sni_probe` in
 proxy-state.json) — the separate re-select step no longer exists. Manual sweeps:
 `ngray sni regen` or the read-only **Test SNIs (live)** diagnostic.
 
-**Volume knob**: `server.sni_max_per_core` (default **96**, earlier 24) caps
+**Volume knob**: `server.sni_max_per_core` (default **160**, earlier 24) caps
 REALITY routes per core; XHTTP scales at budget/3; every route SNI also gets a
 Cloudflare `cf-ws-<sni>` twin, so endpoints ≈ 2× SNIs. Raise it (e.g. 100) for a
 bigger pool and more domain+IP pairs — trim/limits apply on every setup.

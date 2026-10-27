@@ -167,9 +167,12 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 		return fmt.Errorf("no deployment found — run Server setup first")
 	}
 
-	// PURE link sheet: one URI per line, nothing else cluttering the view.
-	// Copying never relies on mouse-dragging a wrapped line (terminal wrap
-	// corrupts URIs): digits copy link N, 'a' copies everything, 'y' primary.
+	// PURE link sheet: ONLY the subscription URLs — importing the mixed link
+	// in the client brings every config along automatically, so hundreds of
+	// individual URIs (which changed nothing but noise) stay in the CLI
+	// (`ngray client links`) instead of this sheet.
+	// Copying never relies on mouse-dragging a wrapped line: digits copy
+	// link N, 'a' copies everything, 'y' the primary.
 	clipTarget = ""
 	clipList = clipList[:0]
 
@@ -199,12 +202,8 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	if d.SubDomainSingboxURL != "" {
 		subs = append(subs, d.SubDomainSingboxURL)
 	}
-	// Endpoints are all direct-IP now — plain flat list, one URI per line.
-	for _, e := range d.Endpoints {
-		if u := e.URI(); u != "" {
-			subs = append(subs, u)
-		}
-	}
+	// Endpoints do NOT print here: the mixed link already carries every
+	// config into the client. The full raw list stays CLI-only.
 	clipList = subs
 	clipTarget = clipList[0]
 
@@ -213,6 +212,9 @@ func taskLinks(ctx context.Context, emit func(string)) error {
 	for _, u := range clipList {
 		emit(u)
 	}
+	emit("")
+	emit(dimStyle.Render(fmt.Sprintf("%d config(s) live inside those links — import the mixed one, all appear · full raw list: `ngray client links`",
+		countLinks(d.Endpoints))))
 	return nil
 }
 
