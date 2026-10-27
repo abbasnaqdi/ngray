@@ -146,6 +146,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateForm(msg)
 		case screenDomainForm:
 			return m.updateDomainForm(msg)
+		case screenCleanup:
+			return m.updateCleanup(msg)
 		default:
 			return m.updateMenu(msg)
 		}
@@ -214,6 +216,10 @@ func (m Model) selectItem(it item) (tea.Model, tea.Cmd) {
 		// swp token stays in memory only, the domain/target prefill from
 		// config). A fresh prefill happens once at New().
 		m.screen = screenDomainForm
+		return m, nil
+	}
+	if it.cleanupBefore {
+		m.screen = screenCleanup
 		return m, nil
 	}
 	return m.start(it)

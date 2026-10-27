@@ -84,6 +84,8 @@ func (t *Tester) mapHosts(ctx context.Context, hosts []string, workers int, fn f
 // TestAll tests hosts concurrently with the full per-host measurement
 // (fitness + latency samples + HTTP), invoking onResult as each finishes.
 func (t *Tester) TestAll(ctx context.Context, hosts []string, workers int, onResult func(Result)) []Result {
+	restore := silenceHTTPLog()
+	defer restore()
 	return t.mapHosts(ctx, hosts, workers, t.Test, onResult)
 }
 
@@ -96,6 +98,8 @@ func (t *Tester) TestAll(ctx context.Context, hosts []string, workers int, onRes
 // onResult fires once per host: immediately for hosts that fail the probe, and
 // after full measurement for hosts that pass.
 func (t *Tester) Sweep(ctx context.Context, hosts []string, workers int, onResult func(Result)) []Result {
+	restore := silenceHTTPLog()
+	defer restore()
 	probed := t.mapHosts(ctx, hosts, workers, t.probe, func(r Result) {
 		if !r.Fit() && onResult != nil {
 			onResult(r)

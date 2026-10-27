@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -165,4 +168,110 @@ func Remove(ctx context.Context, o ManageOptions) error {
 		o.log("removed core binaries")
 	}
 	return nil
+}
+
+// CleanupOptions is the granular rollback surfaced by the TUI "Cleanup"
+// checklist. Each action is independent; nothing is implied.
+type CleanupOptions struct {
+	RestoreNginx   bool // copy the latest pre-ngray nginx.conf backup over the managed file + reload
+	StopServices   bool // stop + disable every ngray core service
+	RemoveConfigs  bool // managed config files (backed up first)
+	ClearFirewall  bool // flush the NGRAY chain
+	RemoveState    bool // config.yml, proxy-state.json, sub certs/bundles, cf_token, SNI pool copy
+	RemoveBinaries bool // core binaries installed by ngray
+}
+
+// Cleanup executes exactly the selected rollbacks, backing up before deleting.
+// Skipped (unticked) items are never touched; effects are logged so the run is
+// auditable.
+func Cleanup(ctx context.Context, o ManageOptions, opt CleanupOptions) error {
+	sys := system.New()
+	backup := "/etc/ngray/backup/" + time.Now().Format("20060102-150405")
+
+	if opt.RestoreNginx {
+		// The managed config is only restored when a foreign (pre-ngray)
+		// snapshot exists — never truncate the current file with nothing.
+		if best := latestNginxBackup(sys); best != "" {
+			if err := sys.CopyFile(best, nginx.ConfPath); err != nil {
+				o.log("restore nginx.conf: %v", err)
+			} else {
+				o.log("restored nginx.conf from %s", best)
+				_, _ = sys.Run(ctx, "systemctl", "restart", "nginx")
+			}
+		} else {
+			o.log("no nginx backup found — skipped restore")
+		}
+	}
+
+	if opt.StopServices {
+		for _, core := range cores.Registry() {
+			_, _ = sys.Run(ctx, "systemctl", "stop", core.Service())
+			_, _ = sys.Run(ctx, "systemctl", "disable", core.Service())
+			_ = sys.Remove("/etc/systemd/system/" + core.Service() + ".service")
+		}
+		_, _ = sys.Run(ctx, "systemctl", "daemon-reload")
+		o.log("stopped and disabled ngray core services")
+	}
+
+	if opt.RemoveConfigs {
+		kept := 0
+		for _, p := range managedPaths {
+			if !sys.Exists(p) || p == nginx.ConfPath && opt.RestoreNginx {
+				continue // restored in place; do not delete the fresh copy
+			}
+			if err := sys.CopyFile(p, backup+p); err == nil {
+				kept++
+			}
+			_ = sys.Remove(p)
+		}
+		_ = kept
+		o.log("removed ngray-managed configs (backup: %s)", backup)
+	}
+
+	if opt.ClearFirewall {
+		firewall.New(sys).Clear(ctx)
+		o.log("cleared the ngray firewall chain")
+	}
+
+	if opt.RemoveState {
+		for _, p := range []string{
+			config.Path(), filepath.Dir(config.Path()) + "/" + "proxy-state.json",
+			"/etc/ngray/cf_token", "/etc/ngray",
+		} {
+			_ = sys.Remove(p)
+		}
+		o.log("removed ngray state/config/token")
+	}
+
+	if opt.RemoveBinaries {
+		for _, p := range []string{
+			"/usr/local/bin/shoes", "/usr/local/bin/xray", "/usr/bin/sing-box",
+			"/usr/local/bin/hysteria", "/usr/local/bin/fptn-server", "/usr/local/bin/mita",
+		} {
+			if sys.Exists(p) && sys.Remove(p) == nil {
+				o.log("removed %s", p)
+			}
+		}
+	}
+	return nil
+}
+
+// latestNginxBackup finds the newest foreign nginx.conf snapshot across the
+// backup timestamp dirs, or "" when none exists.
+func latestNginxBackup(sys *system.Env) string {
+	entries, err := os.ReadDir("/etc/ngray/backup")
+	if err != nil {
+		return ""
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() > entries[j].Name() })
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		cand := filepath.Join("/etc/ngray/backup", e.Name(), "nginx.conf")
+		if sys.Exists(cand) {
+			return cand
+		}
+	}
+	return ""
 }

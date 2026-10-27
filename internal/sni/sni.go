@@ -5,6 +5,8 @@ package sni
 import (
 	"context"
 	"crypto/tls"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"sort"
@@ -115,21 +117,43 @@ func (t *Tester) Test(ctx context.Context, host string) Result {
 	return res
 }
 
-// httpCode does a best-effort HTTP/2 HEAD to confirm the SNI is a live site a
-// REALITY dest should mimic (an authentic 200/3xx looks more reasonable).
+// httpCode does a best-effort HTTP/2 GET-over-Range to confirm the SNI is a
+// live site a REALITY dest should mimic (an authentic 200/3xx looks more
+// reasonable). GET instead of HEAD: buggy servers that attach a body to a HEAD
+// response make the http2 transport log "protocol error: received DATA on a
+// HEAD request" with the global logger. A fresh non-keepalive transport means
+// no pooled connection can leak late frames back into the process.
 func (t *Tester) httpCode(ctx context.Context, host string) int {
 	cctx, cancel := context.WithTimeout(ctx, t.Timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(cctx, http.MethodHead, "https://"+host+"/", nil)
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, "https://"+host+"/", nil)
 	if err != nil {
 		return 0
 	}
-	resp, err := http.DefaultClient.Do(req)
+	req.Header.Set("Range", "bytes=0-64")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+	cl := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+			DisableKeepAlives: true,
+		},
+	}
+	resp, err := cl.Do(req)
 	if err != nil {
 		return 0
 	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256))
 	resp.Body.Close()
 	return resp.StatusCode
+}
+
+// silenceHTTPLog diverts the stdlib log sink (used by the bundled http2 stack
+// for "protocol error" notices from misbehaving servers) so sweeps never
+// pollute CLI/TUI output. The returned func restores the previous writer.
+func silenceHTTPLog() func() {
+	prev := log.Writer()
+	log.SetOutput(io.Discard)
+	return func() { log.SetOutput(prev) }
 }
 
 // handshake performs a single TLS handshake; x25519 pins the group to X25519.

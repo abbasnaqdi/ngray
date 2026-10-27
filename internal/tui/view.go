@@ -52,6 +52,8 @@ func (m Model) View() string {
 		return m.viewSetupForm()
 	case screenDomainForm:
 		return m.viewDomainForm()
+	case screenCleanup:
+		return m.viewCleanup()
 	default:
 		return m.viewMenu()
 	}

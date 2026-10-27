@@ -9,8 +9,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/abbasnaqdi/ng-ray/internal/cdnscan"
 	"github.com/abbasnaqdi/ng-ray/internal/cf"
@@ -66,6 +69,11 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
+		// Pre-TUI launch check: silently self-update and re-exec when a newer
+		// release exists. Opt out with NGRAY_NO_SELFUPDATE=1.
+		if os.Getenv("NGRAY_NO_SELFUPDATE") == "" {
+			selfUpdateAndReexec()
+		}
 		return tui.Run()
 	}
 	switch args[0] {
@@ -232,12 +240,41 @@ func cmdUpdate(args []string) error {
 	ctx := context.Background()
 	log := func(f string, a ...any) { fmt.Printf("  "+f+"\n", a...) }
 	if contains(args, "--self") {
-		return server.SelfUpdate(ctx, log)
+		return server.SelfUpdate(ctx, log, true)
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("update must run as root")
 	}
 	return server.UpdateCores(ctx, askYesNo, log)
+}
+
+// selfUpdateAndReexec runs the bounded launch-time update; when the binary on
+// disk is now newer, exec() replaces this process with it (same argv/environ)
+// so the launched TUI IS the new version. Windows cannot exec over its own
+// running image — there the new binary is picked up at the next start.
+func selfUpdateAndReexec() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	finished := make(chan bool, 1)
+	go func() {
+		finished <- server.AutoUpdateOnLaunch(context.Background(), func(f string, a ...any) {
+			fmt.Printf("  "+f+"\n", a...)
+		})
+	}()
+	var updated bool
+	select {
+	case updated = <-finished:
+	case <-time.After(90 * time.Second):
+		return // release check hung; run what we have
+	}
+	if !updated {
+		return
+	}
+	if runtime.GOOS != "windows" {
+		syscall.Exec(exe, os.Args, os.Environ()) //nolint // only reachable once replaced
+	}
 }
 
 // cmdDNS runs the DNS tunneling resolver validator or the DoH benchmark.

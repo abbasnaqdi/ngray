@@ -89,19 +89,20 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 
 	pop := &sniBudget{ranked: ranked}
 
-	// Maximize config volume: consume essentially the entire fit pool, split
-	// across all three nginx-fronted REALITY cores plus a CDN-leaning XHTTP
-	// slice, reserving one SNI for the shared independent-TLS endpoints. Counts
-	// scale with supply, so a thin pool still yields a sane spread while a rich
-	// pool yields hundreds of distinct REALITY configs. Each SNI is unique
-	// (sniBudget never repeats a host) and latency-ranked, so the leading
-	// configs are the fastest and the tail is bonus anti-blocking fallback.
+	// Volume policy: diversity matters, hundreds of routes do not. Keep a
+	// bounded pool per core — enough distinct REALITY destinations to rotate
+	// against blocks, few enough that nginx/firewall/clients stay readable.
+	// Each SNI is unique (sniBudget never repeats a host) and latency-ranked.
+	const maxPerCore = 24
 	total := len(ranked)
-	xhttpN := min(total/8, 24)
+	xhttpN := min(min(total/8, 24), 8)
 	rest := max(total-xhttpN-1, 0) // reserve one for the shared best SNI below
-	xrayN := rest * 35 / 100
-	shoesN := rest * 33 / 100
-	singboxN := rest - xrayN - shoesN
+	xrayN := min(rest*35/100, maxPerCore)
+	shoesN := min(rest*33/100, maxPerCore)
+	singboxN := min(rest-xrayN-shoesN, maxPerCore)
+	if assigned := xhttpN + xrayN + shoesN + singboxN + 2; assigned < total {
+		log("auto-SNI: %d hosts fit — keeping the best %d (cap %d per core; set to rotate every few weeks)", total, assigned, maxPerCore)
+	}
 
 	// xray: bulk vless+vision REALITY + a CDN-leaning XHTTP slice
 	cfg.Cores.Xray.XHTTP = pop.xhttp(xhttpN)

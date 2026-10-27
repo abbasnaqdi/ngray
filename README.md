@@ -25,6 +25,7 @@ No domain required. No manual SNI selection. No configuration knowledge required
   8  Doctor
   p  Domain / proxy   (Cloudflare cert + DNS + reverse proxy)
   u  Update ngray     (self-update: release w/ SHA256, or source rebuild)
+  c  Cleanup          (roll back: nginx, services, configs, firewall, state, binaries)
   9  Regenerate credentials
 ```
 
@@ -38,6 +39,11 @@ It replaces the binary with the latest release (SHA256-verified against the
 published SHA256SUMS and refreshes the SNI pool). If the repo has no release
 yet (private / Actions billing locked) and you are in a checkout, it falls
 back to `scripts/update.sh` (fetch + build + install) automatically.
+
+Every plain `sudo ngray` launch also does a bounded, silent self-update check
+first: if a newer release exists it is downloaded, SHA256-verified, installed,
+and the TUI re-executes into the new binary (no manual restart). Opt out with
+`NGRAY_NO_SELFUPDATE=1`.
 
 ---
 

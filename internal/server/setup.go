@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -428,6 +430,37 @@ func applyFirewall(ctx context.Context, sys *system.Env, cfg *config.Config, st 
 	if cfg.Cores.Fptn.Enabled {
 		r.TCP = append(r.TCP, cfg.Cores.Fptn.Port)
 	}
-	o.log("applying firewall: tcp%v udp%v", r.TCP, r.UDP)
+	if len(r.TCP) == 0 && len(r.UDP) == 0 {
+		o.log("applying firewall: default-drop inbound, ssh only")
+	}
+	o.log("applying firewall: tcp %s  udp %s", portList(r.TCP), portList(r.UDP))
 	return firewall.New(sys).Apply(ctx, r)
+}
+
+// portList renders ports grouped and wrapped (443, 80, 2053, …) instead of the
+// bare %v slice, which wrapped ugly mid-number inside [..] brackets at ~80 cols.
+func portList(ports []int) string {
+	sorted := append([]int(nil), ports...)
+	sort.Ints(sorted)
+	parts := make([]string, len(sorted))
+	for i, p := range sorted {
+		parts[i] = strconv.Itoa(p)
+	}
+	// Wrap after 78 columns; continuation lines align under the list start.
+	const width = 78
+	var lines []string
+	cur := ""
+	for _, p := range parts {
+		switch {
+		case cur == "":
+			cur = p
+		case len(cur)+2+len(p) > width:
+			lines = append(lines, cur+",")
+			cur = p
+		default:
+			cur += ", " + p
+		}
+	}
+	lines = append(lines, cur)
+	return strings.Join(lines, "\n    ")
 }

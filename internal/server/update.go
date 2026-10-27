@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
@@ -75,10 +76,12 @@ func UpdateCores(ctx context.Context, confirm func(string) bool, log func(string
 //  1. Latest release asset (ngray-<os>-<arch>), verified against the published
 //     SHA256SUMS before anything is replaced. The SNI candidate pool ships in
 //     the release too and is refreshed alongside the binary.
-//  2. When no release exists (the repo is private / Actions billing locked)
-//     and this invocation runs from a git checkout, fall back to the source
-//     path: `scripts/update.sh` (fetch → build → install), streamed to log.
-func SelfUpdate(ctx context.Context, log func(string, ...any)) error {
+//  2. When allowSource is set and no release exists (the repo is private /
+//     Actions billing locked) and this invocation runs from a git checkout,
+//     fall back to the source path: `scripts/update.sh` (fetch → build →
+//     install), streamed to log. The launch-time auto-update passes false so
+//     startup never waits on a source rebuild.
+func SelfUpdate(ctx context.Context, log func(string, ...any), allowSource bool) error {
 	sys := system.New()
 	latest, err := sys.LatestVersion(ctx, SelfRepo)
 	if err == nil {
@@ -95,11 +98,43 @@ func SelfUpdate(ctx context.Context, log func(string, ...any)) error {
 		return selfUpdateRelease(ctx, sys, latest, log)
 	}
 	// No (reachable) release — a source checkout can still self-update.
-	if checkoutRoot() != "" {
+	if allowSource && checkoutRoot() != "" {
 		log("no ng-ray release (repo private or Actions disabled) — updating from source instead")
 		return selfUpdateSource(ctx, log)
 	}
 	return fmt.Errorf("no ng-ray release found: %w\nnot a git checkout either — install from source:\n  git clone %s && cd ngray && sudo make install", err, "https://github.com/abbasnaqdi/ng-ray")
+}
+
+// AutoUpdateOnLaunch is the pre-TUI self-update check: bounded, silent on any
+// failure (never delays boot), release-only (no source rebuilds at startup).
+// Returns true only when the binary on disk was actually replaced with a
+// newer version; the caller then re-executes.
+func AutoUpdateOnLaunch(ctx context.Context, log func(string, ...any)) bool {
+	if os.Geteuid() != 0 {
+		return false // needs root to replace the binary; skip silently
+	}
+	cctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	quiet := func(_ string, _ ...any) {}
+
+	sys := system.New()
+	latest, err := sys.LatestVersion(cctx, SelfRepo)
+	if err != nil || latest == "" || latest == version.Version {
+		return false // no release yet / network down / up to date
+	}
+	tag, _ := sys.LatestTag(ctx, SelfRepo)
+	expected := "v" + version.Version
+	if version.Commit != "" && version.Commit != "none" {
+		expected += "-" + version.Commit
+	}
+	if tag != "" && tag == expected {
+		return false
+	}
+	if err := selfUpdateRelease(cctx, sys, latest, quiet); err != nil {
+		return false // keep launching the current image
+	}
+	log("self-updated %s → %s — restarting into the new binary…", version.Version, latest)
+	return true
 }
 
 // selfUpdateRelease downloads + verifies + installs the release binary.

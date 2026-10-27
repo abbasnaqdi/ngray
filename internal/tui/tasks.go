@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/abbasnaqdi/ng-ray/internal/cf"
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/cores"
@@ -18,6 +20,7 @@ import (
 	"github.com/abbasnaqdi/ng-ray/internal/sni"
 	"github.com/abbasnaqdi/ng-ray/internal/state"
 	"github.com/abbasnaqdi/ng-ray/internal/system"
+	"github.com/abbasnaqdi/ng-ray/internal/version"
 )
 
 func buildItems() []item {
@@ -62,6 +65,9 @@ func buildItems() []item {
 		{key: "p", name: "Domain / proxy",
 			desc:         "Put a domain in front of the subscription and/or a service: Cloudflare Origin cert, DNS A record, reverse proxy. Token is cached in /etc/ngray/cf_token.",
 			domainBefore: true},
+		{key: "c", name: "Cleanup / uninstall",
+			desc:          "Tick exactly what to roll back: restore the pre-ngray nginx.conf, stop+disable services, remove configs, clear the firewall chain, remove state/certs, delete core binaries or the ngray binary itself.",
+			cleanupBefore: true},
 		{key: "u", name: "Update ngray",
 			desc: "Replace ngray with the latest release (SHA256-verified) or, when no release exists, rebuild from this checkout via scripts/update.sh. Needs root; tells you the version it lands on.",
 			task: taskSelfUpdate},
@@ -77,7 +83,7 @@ func buildItems() []item {
 func taskSelfUpdate(ctx context.Context, emit func(string)) error {
 	err := server.SelfUpdate(ctx, func(f string, a ...any) {
 		emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...))
-	})
+	}, true)
 	if err != nil {
 		return err
 	}
@@ -432,6 +438,144 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+// Cleanup action bit indices (checkbox order in the cleanup screen).
+const (
+	cuRestoreNginx = iota
+	cuStopServices
+	cuRemoveConfigs
+	cuClearFirewall
+	cuRemoveState
+	cuRemoveBinaries
+	cuRemoveSelf
+	numCleanupActions
+)
+
+// cleanupForm is the checkbox list for the "Cleanup / uninstall" screen.
+// Everything starts unchecked (safe default); the user opts each action in.
+type cleanupForm struct {
+	on    [numCleanupActions]bool
+	focus int
+}
+
+func (m Model) viewCleanup() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Cleanup / uninstall") + "  " + dimStyle.Render("v"+version.Version) + "\n")
+	b.WriteString(dimStyle.Render("roll back exactly what you tick — nothing else is touched") + "\n\n")
+
+	labels := []string{
+		"Restore nginx.conf    (pre-ngray backup + reload)",
+		"Stop + disable cores  (xray, shoes, sing-box, hysteria, …)",
+		"Remove ngray configs  (managed files under /etc, backed up first)",
+		"Clear firewall chain  (input rules back to the host default)",
+		"Remove ngray state    (config.yml, proxy-state.json, certs, token)",
+		"Delete core binaries  (xray/shoes/sing-box/hysteria binaries)",
+		"Delete ngray binary   (its ELF at its install path)",
+	}
+	for i, l := range labels {
+		mark := mutedStyle.Render("○")
+		style := textStyle
+		if m.cleanup.on[i] {
+			mark = okStyle.Render("●")
+		}
+		if m.cleanup.focus == i {
+			b.WriteString(accentStyle.Render("  ❯ ") + accentStyle.Render(l) + " " + mark + "\n")
+		} else {
+			b.WriteString("    " + style.Render("  ") + l + " " + mark + "\n")
+		}
+	}
+
+	b.WriteString("\n")
+	detail := []string{
+		"  nginx backup: /etc/ngray/backup/<latest>/nginx.conf is copied over the",
+		"    managed config; without a backup this is a no-op.",
+		"  Core binaries: shoes, xray, sing-box, hysteria from the release path.",
+		"  No effect on other panels (x-ui, marzban, hiddify) — ngray never",
+		"    touches what it did not create.",
+	}
+	b.WriteString(dimStyle.Render(strings.Join(detail, "\n")) + "\n\n")
+
+	if m.cleanup.focus == numCleanupActions {
+		b.WriteString(selStyle.Render("  ❯ Run selected actions") + "\n")
+	} else {
+		b.WriteString(accentStyle.Render("  › Run selected actions") + "\n")
+	}
+	b.WriteString("\n" + dimStyle.Render("  ↑↓/tab move  ·  space tick  ·  enter run  ·  esc back"))
+	return formPanel.Render(b.String())
+}
+
+func (m Model) updateCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	c := &m.cleanup
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "q":
+		m.screen = screenMenu
+		return m, nil
+	case "up", "k", "shift+tab":
+		if c.focus > 0 {
+			c.focus--
+		}
+	case "down", "j", "tab":
+		if c.focus <= numCleanupActions {
+			c.focus++
+		}
+	case " ":
+		if c.focus < numCleanupActions {
+			c.on[c.focus] = !c.on[c.focus]
+		}
+	case "enter":
+		if c.focus == numCleanupActions {
+			return m.runCleanup()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) runCleanup() (tea.Model, tea.Cmd) {
+	var anySelected bool
+	for _, on := range m.cleanup.on {
+		if on {
+			anySelected = true
+		}
+	}
+	if !anySelected {
+		return m, nil
+	}
+	opts := server.CleanupOptions{
+		RestoreNginx:   m.cleanup.on[cuRestoreNginx],
+		StopServices:   m.cleanup.on[cuStopServices],
+		RemoveConfigs:  m.cleanup.on[cuRemoveConfigs],
+		ClearFirewall:  m.cleanup.on[cuClearFirewall],
+		RemoveState:    m.cleanup.on[cuRemoveState],
+		RemoveBinaries: m.cleanup.on[cuRemoveBinaries],
+	}
+	it := item{name: "Cleanup / uninstall", task: func(ctx context.Context, emit func(string)) error {
+		err := server.Cleanup(ctx, server.ManageOptions{
+			StatePath: state.Path(),
+			Log: func(f string, a ...any) {
+				emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...))
+			},
+		}, opts)
+		if err != nil {
+			return err
+		}
+		if m.cleanup.on[cuRemoveSelf] {
+			exe, _ := os.Executable()
+			if exe != "" {
+				if err := os.Remove(exe); err != nil {
+					emit(warnStyle.Render("! ") + "could not delete the running ngray binary: " + err.Error())
+				} else {
+					emit(okStyle.Render("✓") + " deleted " + exe)
+				}
+			}
+		}
+		emit("")
+		emit(okStyle.Render("✓ cleanup done — re-run `sudo ngray server setup` any time to rebuild"))
+		return nil
+	}}
+	return m.start(it)
 }
 
 // helpers ------------------------------------------------------------------

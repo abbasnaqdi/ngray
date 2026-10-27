@@ -17,6 +17,7 @@ const (
 	screenMenu screen = iota
 	screenSetupForm
 	screenDomainForm
+	screenCleanup
 	screenTask
 )
 
@@ -37,6 +38,7 @@ type item struct {
 	task            taskFn
 	wizardBefore    bool // show setup wizard before running this task
 	domainBefore    bool // show the domain/proxy form before running this task
+	cleanupBefore   bool // show the cleanup checklist before running this task
 	disabled        func(m *Model) (bool, string)
 }
 
@@ -97,6 +99,8 @@ type Model struct {
 	restartAfter bool // self-update finished → next enter re-launches the binary
 
 	domain domainForm
+
+	cleanup cleanupForm
 
 	// header status (async)
 	ip        string
