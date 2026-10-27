@@ -146,6 +146,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // ── Menu ──────────────────────────────────────────────────────────────────────
 
 func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The regen item stays armed only while key "9" is held; any other key
+	// (including cursor movement) re-arms the confirm.
+	m.armRegen = m.armRegen && msg.String() == "9"
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -158,11 +161,20 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 	case "enter", " ":
-		return m.selectItem(m.items[m.cursor])
+		it := m.items[m.cursor]
+		if it.key == "9" && !m.armRegen && it.task != nil {
+			m.armRegen = true
+			return m, nil
+		}
+		return m.selectItem(it)
 	default:
 		for i, it := range m.items {
 			if it.key == msg.String() {
 				m.cursor = i
+				if it.task != nil && msg.String() == "9" && !m.armRegen {
+					m.armRegen = true
+					return m, nil
+				}
 				return m.selectItem(it)
 			}
 		}

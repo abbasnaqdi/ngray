@@ -92,6 +92,8 @@ type Model struct {
 	items  []item
 	self   string
 
+	armRegen bool // menu key "9" pressed twice → really wipe credentials
+
 	domain domainForm
 
 	// header status (async)

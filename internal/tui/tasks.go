@@ -63,7 +63,7 @@ func buildItems() []item {
 			desc:         "Put a domain in front of the subscription and/or a service: Cloudflare Origin cert, DNS A record, reverse proxy. Token is cached in /etc/ngray/cf_token.",
 			domainBefore: true},
 		{key: "9", name: "Regenerate credentials",
-			desc: "Clear all keys, secrets and the subscribe token so the next setup regenerates them.",
+			desc: "Wipe ALL keys/passwords/ports + the subscribe token (press 9 twice to confirm). Next setup issues fresh ones — every existing client link stops working.",
 			task: taskRegen},
 	}
 }
@@ -102,10 +102,23 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 	}
 	emit("")
 	emit(okStyle.Render(fmt.Sprintf("✓ %d endpoint(s) — use menu item 2 for individual links", len(d.Endpoints))))
-	if d.SubURL != "" {
+	if d.SubURL != "" || d.SubDomainURL != "" {
 		emit("")
 		emit(keyStyle.Render("subscribe"))
+		// Primary: the CF-fronted domain subscription (no port, trusted
+		// edge cert, origin IP hidden).
+		if d.SubDomainURL != "" || d.SubDomainSingboxURL != "" {
+			emit(keyStyle.Render("  primary — via Cloudflare (no port, trusted cert, IP hidden)"))
+			if d.SubDomainSingboxURL != "" {
+				emit("  sbJSON  " + okStyle.Render(d.SubDomainSingboxURL))
+			}
+			if d.SubDomainURL != "" {
+				emit("  base64  " + okStyle.Render(d.SubDomainURL))
+			}
+		}
+		// User typed listener info lines use their own indentation.
 		if d.SubHTTPURL != "" {
+			emit(dimStyle.Render("  fallback — direct IP (use if the domain is blocked)"))
 			emit("  HTTP   " + okStyle.Render(d.SubHTTPURL))
 			emit(dimStyle.Render("          browser-friendly · no TLS warning"))
 		}

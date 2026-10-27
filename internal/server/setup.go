@@ -192,7 +192,13 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		// with the origin cert. Requires the origin cert to be installed.
 		if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
 			subDomain := cdn.XHTTPDomain()
-			if subDomain != "" && fileExists(cdn.CertFile) && fileExists(cdn.KeyFile) {
+			switch {
+			case subDomain == "":
+				o.log("subscription via Cloudflare skipped: domain set but SNI is empty — set cores.xray.cdn.domain in config.yml")
+			case !fileExists(cdn.CertFile) || !fileExists(cdn.KeyFile):
+				o.log("subscription via Cloudflare skipped: origin cert/key missing (%s, %s)", cdn.CertFile, cdn.KeyFile)
+				o.log("  fix: TUI 'p  Domain / proxy', or `ngray domain issue %s` with the CF token", cdn.Domain)
+			default:
 				const subBackend = 8444
 				ngCfg.Routes = append(ngCfg.Routes, nginx.Route{SNI: subDomain, Backend: subBackend})
 				ngCfg.CDNSub = &nginx.CDNSub{
@@ -204,6 +210,11 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 				deploy.SubDomainSingboxURL = "https://" + subDomain + "/sb/" + token
 				o.log("subscription also via Cloudflare: https://%s/s/<token> (no port)", subDomain)
 			}
+		} else if len(cfg.ProxyRoutes) > 0 {
+			// Domains are in play (proxy routes configured) but CDN fronting
+			// is not enabled — say so instead of silently IP-only.
+			o.log("CDN fronting disabled — subscription stays on the direct IP")
+			o.log("  fix: TUI 'p  Domain / proxy', or `ngray domain set <domain>`")
 		}
 	}
 

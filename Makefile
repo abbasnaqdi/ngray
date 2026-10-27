@@ -21,6 +21,12 @@ build:
 
 install: build
 	$(SUDO) install -m 0755 ngray $(PREFIX)/bin/ngray
+	# Refresh the SNI candidate pool alongside the binary — servers installed
+	# with an older, smaller pool otherwise keep testing stale SNIs forever.
+	if [ -f snis/candidates.sni ]; then \
+		$(SUDO) install -d -m 0750 /etc/ngray/snis; \
+		$(SUDO) install -m 0640 snis/candidates.sni /etc/ngray/snis/candidates.sni; \
+	fi
 
 test:
 	go test ./...

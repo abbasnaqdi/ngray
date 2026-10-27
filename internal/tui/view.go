@@ -79,6 +79,9 @@ func (m Model) viewMenu() string {
 			b.WriteString(dimStyle.Render(wrapWords("    "+d, 56)) + "\n\n")
 		}
 	}
+	if m.armRegen {
+		b.WriteString(errStyle.Render("  ⚠ press 9 AGAIN to wipe all credentials and the subscription token") + "\n")
+	}
 	b.WriteString(dimStyle.Render("    ↑↓ move  ·  1-9 jump  ·  enter run  ·  q quit"))
 	return panel.Render(b.String())
 }
