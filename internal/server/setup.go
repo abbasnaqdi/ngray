@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,7 +80,8 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 	// Converge every install to the same readable size: pre-cap configs may
 	// carry hundreds of REALITY routes (steep endpoint counts for clients).
 	if n := trimLegacySNIs(cfg); n > 0 {
-		o.log("trimmed %d extra SNIs to the %d/core cap — regen re-fits them by quality", n, maxPerCore)
+		budget, _ := sniLimits(cfg)
+		o.log("trimmed %d extra SNIs to the %d/core cap (server.sni_max_per_core raises it) — self-heal applies on the next setup", n, budget)
 	}
 	if bad := scanIranFiltered(cfg); len(bad) > 0 {
 		o.log("replacing %d Iran-filtered SNI(s): %v", len(bad), bad)
@@ -94,16 +96,24 @@ func Setup(ctx context.Context, o Options) (*state.Deploy, error) {
 		}
 	}
 
-	if freshInstall && !sys.DryRun {
+	st, err := state.Load(o.StatePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Auto re-fit: the candidate pool is RE-TESTED inside setup when it is
+	// missing, fresh installs, or older than 7 days — the old separate
+	// "Re-select SNIs" menu step folded in here; setup is the only trigger a
+	// deploy needs. A manual full sweep remains available via tests? No—the
+	// regen menu entry was removed deliberately.
+	if !sys.DryRun && sniProbeStale(freshInstall, st.LastSNIProbe) {
 		candidatesPath := o.CandidatesPath
 		if candidatesPath == "" {
 			candidatesPath = candidatesNear(o.ConfigPath)
 		}
-		_ = autoPopulateSNIs(ctx, candidatesPath, o.ConfigPath, cfg, o.log)
-	}
-	st, err := state.Load(o.StatePath)
-	if err != nil {
-		return nil, err
+		if ok := autoPopulateSNIs(ctx, candidatesPath, o.ConfigPath, cfg, o.log); ok {
+			st.LastSNIProbe = time.Now()
+		}
 	}
 
 	ip := cfg.Server.IP
@@ -422,11 +432,46 @@ func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options)
 			}
 		}
 	}
-	// When other projects dropped server blocks in the stock include dirs, keep
-	// loading them so our takeover does not (further) disturb their setup.
-	if site, _ := sys.Run(ctx, "sh", "-c", "ls /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null | head -n1"); site != "" {
-		c.IncludeConfD = true
-		o.log("external nginx sites detected (%s) — included, they keep running", strings.TrimSpace(site))
+	// Foreign server blocks from other projects: include them ONLY when their
+	// listen ports do not collide with ours. The Debian sites-enabled default
+	// site claims default_server on :80 — including it stole our plain-HTTP
+	// subscription server (404/EOF probes). The decision is per directory.
+	ourPorts := map[int]bool{80: true, c.Port: true}
+	if c.Sub != nil && c.Sub.HTTPSPort > 0 {
+		ourPorts[c.Sub.HTTPSPort] = true
+	}
+	portFor := func(line string) (int, bool) {
+		m := listenPort.FindStringSubmatch(line)
+		if m == nil {
+			return 0, false
+		}
+		p, err := strconv.Atoi(m[1])
+		if err != nil {
+			return 0, false
+		}
+		return p, true
+	}
+	for dir, glob := range map[string]string{
+		"/etc/nginx/conf.d":        "/etc/nginx/conf.d/*.conf",
+		"/etc/nginx/sites-enabled": "/etc/nginx/sites-enabled/*",
+	} {
+		if files, _ := sys.Run(ctx, "sh", "-c", "ls "+glob+" 2>/dev/null | head -n1"); files == "" {
+			continue
+		}
+		out, _ := sys.Run(ctx, "sh", "-c", "grep -hE '^[^#]*listen' "+glob+" /dev/null 2>/dev/null || true")
+		conflict := false
+		for _, l := range strings.Split(out, "\n") {
+			if p, ok := portFor(l); ok && ourPorts[p] {
+				conflict = true
+				o.log("external nginx sites on port %d detected in %s — NOT included (ngray owns this port); review %s if you need them", p, dir, dir)
+				break
+			}
+		}
+		if conflict {
+			continue
+		}
+		c.Includes = append(c.Includes, "include "+glob+";")
+		o.log("external nginx sites detected (%s) — included, they keep running", dir)
 	}
 	if err := sys.WriteString(nginx.ConfPath, c.Render(), 0o644); err != nil {
 		return err
@@ -458,6 +503,15 @@ func writeNginx(ctx context.Context, sys *system.Env, c nginx.Config, o Options)
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// sniProbeStale reports whether the candidate pool must be re-tested: never
+// probed (zero/fresh install) or the last full sweep is older than 7 days.
+func sniProbeStale(freshInstall bool, last time.Time) bool {
+	if freshInstall || last.IsZero() {
+		return true
+	}
+	return time.Since(last) > 7*24*time.Hour
+}
 
 func restartServices(ctx context.Context, sys *system.Env, cfg *config.Config, o Options) {
 	for _, core := range cores.Registry() {
@@ -545,3 +599,7 @@ func portList(ports []int) string {
 	lines = append(lines, cur)
 	return strings.Join(lines, "\n    ")
 }
+
+// listenPort extracts the TCP port from an nginx `listen <addr>:<port>` line,
+// accepting both `listen 80;` and `listen [::]:80;` / `127.0.0.1:8080;` forms.
+var listenPort = regexp.MustCompile(`listen\s+(?:[^\s;]*:\n?)?(\d+)`)

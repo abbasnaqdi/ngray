@@ -14,19 +14,17 @@ No domain required. No manual SNI selection. No configuration knowledge required
 ◆ ngray toolkit  v0.8.1
   YOUR.SERVER.IP · nginx :443 · hy2 udp :443 · BBR on  ✓ up to date
 
-  1  Server setup / repair
-  r  Re-select SNIs
+  1  Server setup / repair   (auto re-tests the SNI pool when stale >7d)
   2  Client links · subscribe
-  3  Test SNIs (live)
+  3  Test SNIs (live)        (read-only diagnostic — does not change configs)
   4  Scan CDN edges
   5  Status
   6  Update cores
   7  Firewall
-  8  Doctor
-  p  Domain / proxy   (Cloudflare cert + DNS + reverse proxy)
+  8  Doctor                  (parallel probes, auto-repairs)
+  p  Domain / proxy   (Cloudflare cert + DNS + reverse proxy + path ports)
   u  Update ngray     (self-update: release w/ SHA256, or source rebuild)
-  c  Cleanup          (roll back: nginx, services, configs, firewall, state, binaries)
-  9  Regenerate credentials
+  c  Cleanup          (rollback … + Rotate credentials: fresh keys/token + auto-setup)
 ```
 
 Updating ngray itself is one command — no git, no Go, no scripts:
@@ -262,7 +260,7 @@ Add one URL in any app; all configs appear and auto-update, and the sing-box `au
 `config.yml` lives next to the binary. `config.example.yml` shows all options with explanations. On a fresh server with no `config.yml`, setup auto-selects optimal SNIs from `snis/candidates.sni`.
 
 Key facts:
-- Volume policy: **≤24 REALITY routes per core** + ≤8 XHTTP (older configs are trimmed to this on every setup — hundreds-of-configs installs converge to the same readable size). The **primary subscribe link stays FIXED across setups**; rotation is opt-in (wizard toggle *Rotate sub link* — a rotated link kills all previously distributed URLs through nginx's token guard).
+- Volume policy: **≤40 REALITY routes per core by default** (`server.sni_max_per_core` raises it) + budget/3 XHTTP; each route SNI ships a domain (`cf-ws-…`) + direct-IP pair. The **primary subscribe link stays FIXED across setups**; rotation is opt-in (wizard toggle *Rotate sub link* — a rotated link kills all previously distributed URLs through nginx's token guard).
 - Every REALITY SNI across all cores must be unique (nginx routes one SNI to one backend).
 - `www.X` and `X` count as separate SNIs — use both for double coverage.
 - Iran policy: hosts filtered/interfered with on Iranian networks (Google, YouTube, X/Twitter, Telegram, GitHub, Meta, Wikipedia, OpenAI, TikTok, …) are **excluded as SNI**, alongside destinations requiring >280ms from the server; each quality SNI is served as a *pair* — the CF-fronted domain subscription (primary) + its direct-IP share link. `subscription.front_sni` is given its own dedicated SNI so it never collides with a route.
@@ -283,10 +281,15 @@ tier, so a faster-but-unwhitelisted domain never displaces a proven one. Paste
 your own domains above the marker to prioritise them; below it to keep them as
 fallback only.
 
-**Auto-SNI runs only on a fresh install** (no `config.yml`). Rebuilding the
-binary or editing the pool does **not** re-pick SNIs on its own — run **Re-select
-SNIs** in the TUI (rewrites `config.yml` with the current tiered ranking), then
-re-run **Server setup**; or delete `config.yml` and run setup.
+**Auto-SNI re-fit runs inside Server setup** whenever the pool was never tested
+or the last full sweep is older than 7 days (`last_sni_probe` in
+proxy-state.json) — the separate re-select step no longer exists. Manual sweeps:
+`ngray sni regen` or the read-only **Test SNIs (live)** diagnostic.
+
+**Volume knob**: `server.sni_max_per_core` (default **40**, earlier 24) caps
+REALITY routes per core; XHTTP scales at budget/3; every route SNI also gets a
+Cloudflare `cf-ws-<sni>` twin, so endpoints ≈ 2× SNIs. Raise it (e.g. 100) for a
+bigger pool and more domain+IP pairs — trim/limits apply on every setup.
 
 ---
 

@@ -266,7 +266,57 @@ metamask.io
 trustwallet.com
 ledger.com
 
-#@extended
+# ── Netherlands (most Iranian EUR VPS sits in NL — lowest RTT) ────────
+sidn.nl
+kpn.com
+ziggo.nl
+ns.nl
+bol.com
+coolblue.nl
+ah.nl
+philips.nl
+philips.com
+asml.com
+rabobank.nl
+ing.nl
+bunq.com
+booking.com
+transip.nl
+leaseweb.com
+tomtom.com
+
+# ── Europe (registrar/telecom/rail — strong h2, DCs near EUR VPS) ──────────
+europa.eu
+eurid.eu
+denic.de
+nask.pl
+switch.ch
+cznic.cz
+telekom.de
+db.de
+bahn.de
+sncf.com
+orange.fr
+ovh.com
+scaleway.com
+n26.com
+
+# ── Internet backbone / governance (filtering these breaks DNS/whois/TLS for
+#    the whole provider — censors treat them as durable whites) ─────────────
+ripe.net
+iana.org
+icann.org
+verisign.com
+isoc.org
+ietf.org
+w3.org
+itu.int
+akamai.com
+akamaiedge.net
+edgekey.net
+cloudfront.net
+awsstatic.com
+cdn77.com
 # ═══════════════════════════════════════════════════════════════════════════
 # EXTENDED pool — everything BELOW the "#@extended" marker is a FALLBACK tier.
 # Auto-SNI fills every core from the PREFERRED tier above first (proven,

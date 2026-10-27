@@ -7,11 +7,13 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
@@ -102,40 +104,57 @@ func subProbeURLs(cfg *config.Config, st *state.State, ip string) []struct {
 	return out
 }
 
-// ProbeSub fetches every subscription URL and checks the HTTP status is 200.
+// ProbeSub fetches every subscription URL and checks the HTTP status is 200,
+// probing all transports CONCURRENTLY (the slow one no longer delays the rest).
 // Statuses other than 200 carry a targeted fix (404 = nginx worker cannot read
 // the bundle; connection refused = stale nginx config).
 func ProbeSub(ctx context.Context, cfg *config.Config, st *state.State, ip string) []Check {
-	var out []Check
+	urls := subProbeURLs(cfg, st, ip)
+	out := make([]Check, len(urls))
+	var wg sync.WaitGroup
 	client := &http.Client{Timeout: 6 * time.Second, Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // self-signed fallback
 	}}
-	for _, p := range subProbeURLs(cfg, st, ip) {
+	check := func(ctx context.Context, p struct {
+		name string
+		url  string
+		tls  bool
+	}) Check {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 		if err != nil {
-			out = append(out, Check{"sub " + p.name, Warn, "unbuildable URL", ""})
-			continue
+			return Check{"sub " + p.name, Warn, "unbuildable URL", ""}
 		}
 		req.Header.Set("User-Agent", "ngray-selfcheck/1")
 		resp, err := client.Do(req)
 		if err != nil {
-			out = append(out, Check{"sub " + p.name, Fail, "unreachable: " + errShort(err),
-				"ngray server setup (rebuilds nginx.conf + restarts nginx)"})
-			continue
+			return Check{"sub " + p.name, Fail, "unreachable: " + errShort(err),
+				"ngray server setup (rebuilds nginx.conf + restarts nginx)"}
 		}
 		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
 		resp.Body.Close()
 		switch {
 		case resp.StatusCode == 200:
-			out = append(out, Check{"sub " + p.name, Pass, "200 ✓", ""})
+			return Check{"sub " + p.name, Pass, "200 ✓", ""}
 		case resp.StatusCode == 404:
-			out = append(out, Check{"sub " + p.name, Fail, "404 — the bundle file is not being served",
-				"chmod 755 /etc/ngray  ·  nginx -t && systemctl restart nginx  ·  rerun server setup"})
+			return Check{"sub " + p.name, Fail, "404 — the bundle file is not being served",
+				"chmod 755 /etc/ngray  ·  nginx -t && systemctl restart nginx  ·  rerun server setup"}
 		default:
-			out = append(out, Check{"sub " + p.name, Warn,
-				fmt.Sprintf("HTTP %d — unexpected", resp.StatusCode), ""})
+			return Check{"sub " + p.name, Warn,
+				fmt.Sprintf("HTTP %d — unexpected", resp.StatusCode), ""}
 		}
 	}
+	for i, p := range urls {
+		wg.Add(1)
+		go func(i int, p struct {
+			name string
+			url  string
+			tls  bool
+		}) {
+			defer wg.Done()
+			out[i] = check(ctx, p)
+		}(i, p)
+	}
+	wg.Wait()
 	return out
 }
 
@@ -147,7 +166,58 @@ func errShort(err error) string {
 	return s
 }
 
+// wsPathProbe performs a REAL client handshake against the nginx TLS server:
+// dials 127.0.0.1:muxPort with the CDN SNI (the same path CF takes), sends an
+// HTTP/1.1 WebSocket Upgrade for one twin path, and expects HTTP 101. This
+// catches the "domain configs don't even ping" class: a broken location, a
+// missing Upgrade header, or a dead twin backend surface right here.
+func wsPathProbe(ctx context.Context, log func(string, ...any), muxPort int, sni, path string) {
+	addr := fmt.Sprintf("127.0.0.1:%d", muxPort)
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		log("  ✗ ws twin probe %s: cannot connect: %v", sni, err)
+		return
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
+	tlsConn := tls.Client(conn, &tls.Config{ServerName: sni, InsecureSkipVerify: true}) // origin cert is self-issued; CF already validated it
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		log("  ✗ ws twin probe %s: TLS handshake: %v", sni, err)
+		return
+	}
+	req := "GET " + path + " HTTP/1.1\r\nHost: " + sni + "\r\nUpgrade: websocket\r\n" +
+		"Connection: Upgrade\r\nSec-WebSocket-Key: c3dhbnRoZWxhc3RiYXJzCQ==\r\n" +
+		"Sec-WebSocket-Version: 13\r\n\r\n"
+	if _, err := tlsConn.Write([]byte(req)); err != nil {
+		log("  ✗ ws twin probe %s: write: %v", sni, err)
+		return
+	}
+	resp := make([]byte, 128)
+	n, err := tlsConn.Read(resp)
+	if err != nil || n == 0 {
+		log("  ✗ ws twin probe %s: no response — the nginx location or Upgrade header is broken", sni)
+		return
+	}
+	line := strings.Fields(string(resp[:n]))
+	if len(line) >= 2 && line[1] == "101" {
+		log("  ✓ ws twin probe %s: 101 Switching Protocols", sni)
+		return
+	}
+	log("  ! ws twin probe %s: %s — rerun setup / check the xray twin inbound", sni, strings.Join(line[:min(len(line), 3)], " "))
+}
+
+// min returns the smaller of two ints (Go <1.21 guard not needed but cheap).
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // CheckSub is the stringy twin of ProbeSub used inline during server setup.
+// It also runs the live ws-twin handshake when the mixed bundle carries a
+// /t/-routed link, so a broken domain path surfaces in the same run.
 func CheckSub(ctx context.Context, log func(string, ...any), token string, httpsPort int) {
 	client := &http.Client{Timeout: 6 * time.Second, Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -173,7 +243,35 @@ func CheckSub(ctx context.Context, log func(string, ...any), token string, https
 		return true
 	}
 	check("HTTP :80", fmt.Sprintf("http://127.0.0.1/s/%s", token))
+	check("mixed :80", fmt.Sprintf("http://127.0.0.1/sm/%s", token))
 	check(fmt.Sprintf("HTTPS :%d", httpsPort), fmt.Sprintf("https://127.0.0.1:%d/s/%s", httpsPort, token))
+	// Live ws-twin handshake over the real 443-mux path (what CF→origin does).
+	if dt := deployTwinProbe(); dt.sni != "" {
+		wsPathProbe(ctx, log, dt.port, dt.sni, dt.path)
+	}
+}
+
+// deployTwinProbe yields the FIRST ws-twin route of the current state, for the
+// loopback handshake probe (empty when no deployment or no twins).
+func deployTwinProbe() (p struct {
+	port int
+	sni  string
+	path string
+}) {
+	st, err := state.Load(state.Path())
+	if err != nil || st.Deploy == nil {
+		return p
+	}
+	for _, e := range st.Deploy.Endpoints {
+		if e.Proto == "vless-ws-tls" && strings.HasPrefix(e.Path, "/t/") {
+			return struct {
+				port int
+				sni  string
+				path string
+			}{e.Port, e.SNI, e.Path}
+		}
+	}
+	return p
 }
 
 // certExpiryCheck reports days remaining on a PEM certificate file.
@@ -249,58 +347,57 @@ func Doctor(ctx context.Context, cfg *config.Config, st *state.State) []Check {
 		out = append(out, Check{"nginx", Fail, "not installed", "ngray server setup"})
 	}
 
-	for _, core := range cores.Registry() {
-		if !core.Enabled(cfg) {
-			continue
+	// The three slow groups run CONCURRENTLY: core versions (exec per core),
+	// live subscription probes (HTTP round trips), and the domain check
+	// (DNS + edge + origin TLS). Output order stays deterministic.
+	coreChecks := make([]Check, len(cores.Registry()))
+	probeChecks := []Check{}
+	domainChecks := []Check{}
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		wg2 := sync.WaitGroup{}
+		for i, core := range cores.Registry() {
+			if !core.Enabled(cfg) {
+				continue
+			}
+			wg2.Add(1)
+			go func(i int, core cores.Core) {
+				defer wg2.Done()
+				coreChecks[i] = coreCheck(ctx, sys, core, cfg)
+			}(i, core)
 		}
-		ver, ok := core.Installed(ctx, sys)
-		if !ok {
-			out = append(out, Check{core.Name(), Fail, "not installed", "ngray server setup"})
-			continue
+		wg2.Wait()
+	}()
+	go func() {
+		defer wg.Done()
+		if st == nil {
+			return
 		}
-		if sys.IsActive(ctx, core.Service()) {
-			out = append(out, Check{core.Name(), Pass, "active " + ver, ""})
-		} else {
-			out = append(out, Check{core.Name(), Fail, "installed " + ver + " but service inactive",
-				"journalctl -u " + core.Service() + " -n50  ·  systemctl restart " + core.Service()})
-		}
-	}
-
-	// Subscription files + LIVE probes of every URL the clients will use.
-	if st != nil {
 		if sys.Exists(sub.BundleFile) {
-			out = append(out, Check{"subscription bundle", Pass, "file present", ""})
+			probeChecks = append(probeChecks, Check{"subscription bundle", Pass, "file present", ""})
 		} else {
-			out = append(out, Check{"subscription bundle", Fail, sub.BundleFile + " missing", "ngray server setup"})
+			probeChecks = append(probeChecks, Check{"subscription bundle", Fail, sub.BundleFile + " missing", "ngray server setup"})
 		}
 		ip := st.IP
 		if ip == "" {
 			ip = "127.0.0.1"
 		}
-		out = append(out, ProbeSub(ctx, cfg, st, ip)...)
-	}
-
-	// Domain reachability (DNS → CF edge → origin TLS), no token needed.
-	if cdn := cfg.Cores.Xray.CDN; cdn != nil && cdn.Enabled && cdn.Domain != "" {
-		ip := ""
-		if st != nil {
-			ip = st.IP
-		}
-		tctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		r := domain.Check(tctx, cdn.Domain, ip)
-		cancel()
-		fr := fmt.Sprintf("resolved=%d IP(s) · edge=HTTP %d · originTLS=%v", len(r.ResolvedIPs), r.EdgeStatus, r.OriginTLSOK)
-		switch {
-		case r.ViaCloudflare && r.OriginTLSOK:
-			out = append(out, Check{"domain " + cdn.Domain, Pass, "Cloudflare-proxied · " + fr, ""})
-		case len(r.ResolvedIPs) == 0:
-			out = append(out, Check{"domain " + cdn.Domain, Fail, "DNS does not resolve", "create the A record (TUI 'p  Domain / proxy')"})
-		case r.EdgeStatus == 404 || r.EdgeStatus == 502:
-			out = append(out, Check{"domain " + cdn.Domain, Pass, "proxied · edge " + fr + " (404/502 on / is normal when no web page is served)", ""})
-		default:
-			out = append(out, Check{"domain " + cdn.Domain, Warn, fr + " · verdict " + string(r.Verdict), "ngray domain check " + cdn.Domain})
+		probeChecks = append(probeChecks, ProbeSub(ctx, cfg, st, ip)...)
+	}()
+	go func() {
+		defer wg.Done()
+		domainChecks = domainCheckChecks(ctx, cfg, st)
+	}()
+	wg.Wait()
+	for _, c := range coreChecks {
+		if c.Name != "" {
+			out = append(out, c)
 		}
 	}
+	out = append(out, probeChecks...)
+	out = append(out, domainChecks...)
 
 	out = append(out, certExpiryCheck(cfg)...)
 
@@ -516,4 +613,47 @@ func latestNginxBackup(sys *system.Env) string {
 		}
 	}
 	return ""
+}
+
+// coreCheck renders one provider's Doctor line (installed + active states).
+func coreCheck(ctx context.Context, sys *system.Env, core cores.Core, cfg *config.Config) Check {
+	if !core.Enabled(cfg) {
+		return Check{}
+	}
+	ver, ok := core.Installed(ctx, sys)
+	if !ok {
+		return Check{core.Name(), Fail, "not installed", "ngray server setup"}
+	}
+	if sys.IsActive(ctx, core.Service()) {
+		return Check{core.Name(), Pass, "active " + ver, ""}
+	}
+	return Check{core.Name(), Fail, "installed " + ver + " but service inactive",
+		"journalctl -u " + core.Service() + " -n50  ·  systemctl restart " + core.Service()}
+}
+
+// domainCheckChecks reaches the CDN domain (DNS → CF edge → origin TLS),
+// no token needed.
+func domainCheckChecks(ctx context.Context, cfg *config.Config, st *state.State) []Check {
+	cdn := cfg.Cores.Xray.CDN
+	if cdn == nil || !cdn.Enabled || cdn.Domain == "" {
+		return nil
+	}
+	ip := ""
+	if st != nil {
+		ip = st.IP
+	}
+	tctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	r := domain.Check(tctx, cdn.Domain, ip)
+	cancel()
+	fr := fmt.Sprintf("resolved=%d IP(s) · edge=HTTP %d · originTLS=%v", len(r.ResolvedIPs), r.EdgeStatus, r.OriginTLSOK)
+	switch {
+	case r.ViaCloudflare && r.OriginTLSOK:
+		return []Check{{"domain " + cdn.Domain, Pass, "Cloudflare-proxied · " + fr, ""}}
+	case len(r.ResolvedIPs) == 0:
+		return []Check{{"domain " + cdn.Domain, Fail, "DNS does not resolve", "create the A record (TUI 'p  Domain / proxy')"}}
+	case r.EdgeStatus == 404 || r.EdgeStatus == 502:
+		return []Check{{"domain " + cdn.Domain, Pass, "proxied · edge " + fr + " (404/502 on / is normal when no web page is served)", ""}}
+	default:
+		return []Check{{"domain " + cdn.Domain, Warn, fr + " · verdict " + string(r.Verdict), "ngray domain check " + cdn.Domain}}
+	}
 }

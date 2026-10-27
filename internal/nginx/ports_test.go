@@ -57,17 +57,27 @@ func TestRenderPathProxyServers(t *testing.T) {
 	}
 }
 
-// When other projects own server blocks in the stock include dirs, our
-// takeover keeps loading them — IncludeConfD flips exactly those lines in.
-func TestRenderIncludeConfD(t *testing.T) {
-	on := Config{Port: 443, Sink: 8442, IncludeConfD: true}.Render()
-	off := Config{Port: 443, Sink: 8442}.Render()
+// When writeNginx decides foreign fragments are safe, Render emits exactly
+// those include lines — nothing more.
+func TestRenderIncludes(t *testing.T) {
+	on := Config{Port: 443, Sink: 8442,
+		Sub:      &Subscription{Dir: "/etc/ngray", BundleFile: "bundle", Token: "tok", HTTPSPort: 2053},
+		Includes: []string{"include /etc/nginx/conf.d/*.conf;", "include /etc/nginx/sites-enabled/*;"},
+	}.Render()
 	for _, want := range []string{"include /etc/nginx/conf.d/*.conf;", "include /etc/nginx/sites-enabled/*;"} {
 		if !strings.Contains(on, want) {
 			t.Fatalf("IncludeConfD missing %q", want)
 		}
-		if strings.Contains(off, want) {
-			t.Fatal("include leaked without IncludeConfD")
-		}
+	}
+	off := Config{Port: 443, Sink: 8442,
+		Sub: &Subscription{Dir: "/etc/ngray", BundleFile: "bundle", Token: "tok", HTTPSPort: 2053},
+	}.Render()
+	if strings.Contains(off, "include /etc/nginx/conf.d") || strings.Contains(off, "include /etc/nginx/sites-enabled") {
+		t.Fatal("include leaked when no includes were decided") // the modules-enabled include is always present and fine
+	}
+	// Our :80 is default_server so foreign fragments (even with includes) can
+	// never steal the plain-HTTP subscription traffic — the /sm/ EOF class.
+	if !strings.Contains(on, "listen 80 default_server;") {
+		t.Fatal("our :80 must be default_server")
 	}
 }

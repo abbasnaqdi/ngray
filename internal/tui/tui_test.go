@@ -77,32 +77,6 @@ func TestDomainFormPaste(t *testing.T) {
 	}
 }
 
-// TestMenuRegenNeedsDoublePress guards the credential-wipe flow: the menu item
-// must not clear the state on a single keypress (a stray 9 previously nuked
-// every client link without confirmation).
-func TestMenuRegenNeedsDoublePress(t *testing.T) {
-	m := New()
-	press := func(m Model, k string) Model {
-		updated, _ := m.Update(key(m, k))
-		return updated.(Model)
-	}
-	m = press(m, "9")
-	if !m.armRegen {
-		t.Fatal("first press must arm the confirm")
-	}
-	// Any other key disarms (e.g. the user backed out).
-	m = press(m, "up")
-	if m.armRegen {
-		t.Fatal("moving the cursor must disarm")
-	}
-	// Two presses run the wipe.
-	m = press(m, "9")
-	m = press(m, "9")
-	if m.screen != screenTask || m.taskName != "Regenerate credentials" {
-		t.Errorf("second press should start the regen task, got screen=%d task=%q", m.screen, m.taskName)
-	}
-}
-
 func key(m Model, k string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }

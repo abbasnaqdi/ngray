@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/abbasnaqdi/ng-ray/internal/links"
 )
@@ -29,14 +30,15 @@ type Secret struct {
 type State struct {
 	path string `json:"-"`
 
-	IP        string             `json:"ip,omitempty"`
-	NginxPort int                `json:"nginx_port,omitempty"`
-	BBR       bool               `json:"bbr,omitempty"`
-	SubToken  string             `json:"sub_token,omitempty"`
-	Keys      map[string]Keypair `json:"keys,omitempty"`
-	Secrets   map[string]Secret  `json:"secrets,omitempty"`
-	Ports     map[string]int     `json:"ports,omitempty"`
-	Deploy    *Deploy            `json:"deploy,omitempty"`
+	IP           string             `json:"ip,omitempty"`
+	NginxPort    int                `json:"nginx_port,omitempty"`
+	BBR          bool               `json:"bbr,omitempty"`
+	LastSNIProbe time.Time          `json:"last_sni_probe,omitempty"`
+	SubToken     string             `json:"sub_token,omitempty"`
+	Keys         map[string]Keypair `json:"keys,omitempty"`
+	Secrets      map[string]Secret  `json:"secrets,omitempty"`
+	Ports        map[string]int     `json:"ports,omitempty"`
+	Deploy       *Deploy            `json:"deploy,omitempty"`
 }
 
 // Deploy is the snapshot of the last successful provisioning, so client output

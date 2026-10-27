@@ -36,13 +36,16 @@ type Subscription struct {
 }
 
 type Config struct {
-	Port         int
-	Sink         int // loopback default backend (returns 444)
-	Routes       []Route
-	Sub          *Subscription
-	CDNSub       *CDNSub
-	ProxyRoutes  []ProxyRoute
-	IncludeConfD bool // also load /etc/nginx/conf.d/*.conf + sites-enabled in http{} so foreign nginx sites keep running
+	Port int
+	Sink int // loopback default backend (returns 444)
+
+	Routes      []Route
+	Sub         *Subscription
+	CDNSub      *CDNSub
+	ProxyRoutes []ProxyRoute
+	// Includes are extra http{} include lines writeNginx found SAFE: foreign
+	// server blocks from other projects, verified not to listen on our ports.
+	Includes []string
 }
 
 // CDNSub serves the subscription on a Cloudflare-proxied domain SNI over the
@@ -270,13 +273,8 @@ events {
     server_tokens off;
     access_log off;
 `)
-	if c.IncludeConfD {
-		// Sites installed by OTHER projects keep running: their server blocks
-		// (other ports / server_names) coexist with ours via plain nginx rules.
-		b.WriteString(`
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-`)
+	for _, inc := range c.Includes {
+		fmt.Fprintf(&b, "    %s\n", inc)
 	}
 	b.WriteString(`
     server {
@@ -287,7 +285,7 @@ events {
 		// HTTP :80 — plain-text fallback, always available
 		fmt.Fprintf(&b, `
     server {
-        listen 80;
+        listen 80 default_server;
         server_name _;
         root %s;
 %s%s        location / { return 444; }

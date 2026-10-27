@@ -23,8 +23,9 @@ type Config struct {
 }
 
 type Server struct {
-	IP        string `yaml:"ip"` // "auto" to detect, or an explicit address
-	EnableBBR bool   `yaml:"enable_bbr"`
+	IP            string `yaml:"ip"` // "auto" to detect, or an explicit address
+	EnableBBR     bool   `yaml:"enable_bbr"`
+	SNIMaxPerCore int    `yaml:"sni_max_per_core,omitempty"` // REALITY budget per core (0 → default 40)
 }
 
 type Nginx struct {
@@ -162,7 +163,7 @@ type Client struct {
 
 func Default() *Config {
 	return &Config{
-		Server: Server{IP: "auto", EnableBBR: true},
+		Server: Server{IP: "auto", EnableBBR: true, SNIMaxPerCore: 40},
 		Nginx:  Nginx{Port: 443},
 		Cores: Cores{
 			Xray: Xray{

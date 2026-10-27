@@ -29,17 +29,14 @@ import (
 func buildItems() []item {
 	return []item{
 		{key: "1", name: "Server setup / repair",
-			desc:         "Install + configure every enabled core, nginx SNI mux and subscribe link. Needs root; runs in sandbox otherwise.",
+			desc:         "Install + configure every enabled core, re-test the SNI pool when stale (>7d), nginx SNI mux and subscribe links. Needs root; runs in sandbox otherwise.",
 			wizardBefore: true,
 			task:         taskSetup},
-		{key: "r", name: "Re-select SNIs",
-			desc: "Test all SNI candidates and assign the best-fit ones to every core. Excludes Iran-filtered hosts and high-latency ones, then re-run setup.",
-			task: taskRegenSNIs},
 		{key: "2", name: "Client links · subscribe",
 			desc: "Clean link sheet: the fixed subscribe URLs + one share link per config. Press y to copy the primary link (OSC 52, works over SSH).",
 			task: taskLinks},
 		{key: "3", name: "Test SNIs (live)",
-			desc: "Probe candidate domains for REALITY fitness (TLS1.3 + h2 + X25519) with live results. Pick OK ones for your configs.",
+			desc: "Read-only diagnostic: probe candidate domains for REALITY fitness (TLS1.3 + h2 + X25519). Setup re-fits the pool automatically; this does not change configs.",
 			task: taskSNI},
 		{key: "4", name: "Scan CDN edges",
 			desc: "Find CDN edge IPs reachable from this network (survive MCI). Opens the scanner: ↑/↓ move, space toggle, enter start, q quit.",
@@ -74,9 +71,6 @@ func buildItems() []item {
 		{key: "u", name: "Update ngray",
 			desc: "Replace ngray with the latest release (SHA256-verified) or, when no release exists, rebuild from this checkout via scripts/update.sh. Needs root; tells you the version it lands on.",
 			task: taskSelfUpdate},
-		{key: "9", name: "Regenerate credentials",
-			desc: "Wipe ALL keys/passwords/ports + the subscribe token (press 9 twice to confirm). Next setup issues fresh ones — every existing client link stops working.",
-			task: taskRegen},
 	}
 }
 
@@ -95,27 +89,18 @@ func taskSelfUpdate(ctx context.Context, emit func(string)) error {
 	return nil
 }
 
-func taskRegenSNIs(ctx context.Context, emit func(string)) error {
-	cfg, err := config.LoadOrDefault(config.Path())
-	if err != nil {
-		return err
-	}
-	emit(dimStyle.Render("• ") + "testing SNI candidates — takes ~90s…")
-	if err := server.RegenerateSNIs(ctx, candidatesPath(), config.Path(), cfg, func(f string, a ...any) {
-		emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...))
-	}); err != nil {
-		return err
-	}
-	emit("")
-	emit(okStyle.Render("✓ config.yml updated — run Server setup to apply"))
-	return nil
-}
-
 func taskSetup(ctx context.Context, emit func(string)) error {
 	sandbox := os.Geteuid() != 0
 	if sandbox {
 		emit(badge.Render("sandbox") + " not root — writing under ./sandbox; run `sudo ngray` for a real server")
 	}
+	return applySetup(ctx, emit, sandbox, setupRotateSub && !sandbox)
+}
+
+// applySetup is the full installation path shared by the setup menu item and
+// the cleanup screen's credential-rotation action. It emits the deploy summary
+// plus the fresh subscribe links when it succeeds.
+func applySetup(ctx context.Context, emit func(string), sandbox, rotate bool) error {
 	// Domain fronting configured in config.yml: make sure cert+DNS exist
 	// before provisioning so the CF-fronted paths come up on the same run.
 	cfg, _ := config.LoadOrDefault(config.Path())
@@ -132,7 +117,7 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 		StatePath:      state.Path(),
 		CandidatesPath: candidatesPath(),
 		Sandbox:        sandbox,
-		RotateSub:      setupRotateSub && !sandbox,
+		RotateSub:      rotate && !sandbox,
 		Confirm:        func(string) bool { return true },
 		Log:            func(f string, a ...any) { emit(dimStyle.Render("• ") + fmt.Sprintf(f, a...)) },
 	})
@@ -141,40 +126,48 @@ func taskSetup(ctx context.Context, emit func(string)) error {
 	}
 	emit("")
 	body := fmt.Sprintf("✓ %d endpoint(s) — menu 2 shows the clean link sheet", len(d.Endpoints))
-	if setupRotateSub && !sandbox {
+	if rotate && !sandbox {
 		body += "\n✓ subscription link ROTATED — the old URL now serves 404"
 	}
 	emit(okStyle.Render(body))
-	if d.SubURL != "" || d.SubDomainURL != "" {
-		emit("")
-		emit(keyStyle.Render("subscribe"))
-		// Primary: the CF-fronted domain subscription (no port, trusted
-		// edge cert, origin IP hidden).
-		if d.SubDomainURL != "" || d.SubDomainSingboxURL != "" {
-			emit(keyStyle.Render("  primary — via Cloudflare (no port, trusted cert, IP hidden)"))
-			if d.SubDomainSingboxURL != "" {
-				emit("  sbJSON  " + okStyle.Render(d.SubDomainSingboxURL))
-			}
-			if d.SubDomainURL != "" {
-				emit("  base64  " + okStyle.Render(d.SubDomainURL))
-			}
+	emitSubscribeSummary(emit, d)
+	return nil
+}
+
+// emitSubscribeSummary prints the fresh URLs mixed-first (the single plain-text
+// link), then the format split, then the direct-IP fallback.
+func emitSubscribeSummary(emit func(string), d *state.Deploy) {
+	if d.SubURL == "" && d.SubDomainURL == "" {
+		return
+	}
+	emit("")
+	emit(keyStyle.Render("subscribe"))
+	if d.SubDomainMixedURL != "" {
+		emit(keyStyle.Render("  mixed   ") + okStyle.Render(d.SubDomainMixedURL))
+		emit(dimStyle.Render("          ← ONE link: raw links + sing-box JSON as plain text (nekoray reads it whole)"))
+	}
+	if d.SubMixedURL != "" {
+		emit("  mixed   " + okStyle.Render(d.SubMixedURL))
+	}
+	if d.SubDomainURL != "" || d.SubDomainSingboxURL != "" {
+		emit(dimStyle.Render("  via Cloudflare (no port, trusted cert — origin IP hidden)"))
+		if d.SubDomainURL != "" {
+			emit("  base64  " + okStyle.Render(d.SubDomainURL))
 		}
-		// User typed listener info lines use their own indentation.
-		if d.SubHTTPURL != "" {
-			emit(dimStyle.Render("  fallback — direct IP (use if the domain is blocked)"))
-			emit("  HTTP   " + okStyle.Render(d.SubHTTPURL))
-			emit(dimStyle.Render("          browser-friendly · no TLS warning"))
-		}
-		emit("  HTTPS  " + okStyle.Render(d.SubURL))
-		if d.SubCertFingerprint != "" {
-			emit(dimStyle.Render("  cert   SHA256:" + d.SubCertFingerprint))
-			emit(dimStyle.Render("          self-signed · browsers always warn · proxy clients use pinSHA256"))
-		}
-		if d.SubSingboxURL != "" {
-			emit("  sbJSON " + okStyle.Render(d.SubSingboxURL))
+		if d.SubDomainSingboxURL != "" {
+			emit("  sbJSON  " + okStyle.Render(d.SubDomainSingboxURL))
 		}
 	}
-	return nil
+	if d.SubURL != "" {
+		emit(dimStyle.Render("  direct IP (self-signed; clients pin " + d.SubCertFingerprint[:min(12, len(d.SubCertFingerprint))] + ")"))
+		emit("  HTTPS   " + okStyle.Render(d.SubURL))
+		if d.SubSingboxURL != "" {
+			emit("  sbJSON  " + okStyle.Render(d.SubSingboxURL))
+		}
+	}
+	if d.SubHTTPURL != "" {
+		emit("  HTTP    " + d.SubHTTPURL)
+	}
 }
 
 func taskLinks(ctx context.Context, emit func(string)) error {
@@ -418,19 +411,6 @@ func taskDoctor(ctx context.Context, emit func(string)) error {
 			}
 		}
 	}
-	return nil
-}
-
-func taskRegen(ctx context.Context, emit func(string)) error {
-	st, err := state.Load(state.Path())
-	if err != nil {
-		return err
-	}
-	st.Keys, st.Secrets, st.Ports, st.SubToken, st.Deploy = nil, nil, nil, "", nil
-	if err := st.Save(); err != nil {
-		return err
-	}
-	emit(okStyle.Render("✓ cleared — run Server setup to regenerate"))
 	return nil
 }
 
@@ -744,7 +724,8 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 
 // Cleanup action bit indices (checkbox order in the cleanup screen).
 const (
-	cuRestoreNginx = iota
+	cuRotateCreds = iota
+	cuRestoreNginx
 	cuStopServices
 	cuRemoveConfigs
 	cuClearFirewall
@@ -767,6 +748,7 @@ func (m Model) viewCleanup() string {
 	b.WriteString(dimStyle.Render("roll back exactly what you tick — nothing else is touched") + "\n\n")
 
 	labels := []string{
+		"Rotate credentials    (fresh UUIDs/keys/token — keeps everything installed)",
 		"Restore nginx.conf    (pre-ngray backup + reload)",
 		"Stop + disable cores  (xray, shoes, sing-box, hysteria, …)",
 		"Remove ngray configs  (managed files under /etc, backed up first)",
@@ -853,7 +835,31 @@ func (m Model) runCleanup() (tea.Model, tea.Cmd) {
 		RemoveState:    m.cleanup.on[cuRemoveState],
 		RemoveBinaries: m.cleanup.on[cuRemoveBinaries],
 	}
+	rotate := m.cleanup.on[cuRotateCreds]
+	sandbox := os.Geteuid() != 0
+	// Rotating and uninstalling are exclusive intents — never do both.
+	if rotate {
+		opts.RestoreNginx, opts.StopServices, opts.RemoveConfigs = false, false, false
+	}
 	it := item{name: "Cleanup / uninstall", task: func(ctx context.Context, emit func(string)) error {
+		if rotate {
+			st, err := state.Load(state.Path())
+			if err != nil {
+				return err
+			}
+			st.Keys, st.Secrets, st.Ports, st.SubToken, st.Deploy = nil, nil, nil, "", nil
+			if err := st.Save(); err != nil {
+				return err
+			}
+			emit(okStyle.Render("✓") + " credentials cleared — regenerating everything fresh now…")
+			emit("")
+			if err := applySetup(ctx, emit, sandbox, false); err != nil {
+				return err
+			}
+			emit("")
+			emit(okStyle.Render("✓ rotated — every client link is NEW; re-import them once"))
+			return nil
+		}
 		err := server.Cleanup(ctx, server.ManageOptions{
 			StatePath: state.Path(),
 			Log: func(f string, a ...any) {

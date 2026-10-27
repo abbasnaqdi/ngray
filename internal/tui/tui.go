@@ -103,8 +103,6 @@ type Model struct {
 	items  []item
 	self   string
 
-	armRegen bool // menu key "9" pressed twice → really wipe credentials
-
 	restartAfter bool // self-update finished → next enter re-launches the binary
 	clipDone     bool // one 'y'-copy per task run (screens emit feedback once)
 

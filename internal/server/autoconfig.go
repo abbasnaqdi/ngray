@@ -14,8 +14,9 @@ import (
 // autoPopulateSNIs tests candidates and assigns the best REALITY-fit SNIs to
 // every core and independent-TLS endpoint in cfg, then saves config.yml.
 // Called only when no config.yml existed before setup (fresh install).
-func autoPopulateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any)) error {
-	return populateSNIs(ctx, candidatesPath, configPath, cfg, log, false)
+func autoPopulateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *config.Config, log func(string, ...any)) (ran bool) {
+	populateSNIs(ctx, candidatesPath, configPath, cfg, log, false)
+	return true
 }
 
 // RegenerateSNIs re-runs SNI fitness testing and re-assigns all SNI fields in
@@ -25,34 +26,51 @@ func RegenerateSNIs(ctx context.Context, candidatesPath, configPath string, cfg 
 	return populateSNIs(ctx, candidatesPath, configPath, cfg, log, true)
 }
 
-// maxPerCore caps REALITY routes per core (see populateSNIs). Package-level so
-// legacy configs are trimmed to exactly this budget on every setup.
-const maxPerCore = 24
+// maxPerCore is the DEFAULT REALITY budget per core. The active budget comes
+// from config server.sni_max_per_core (see sniBudget), so operators can raise
+// the endpoint volume without a rebuild.
+const maxPerCore = 40
 
-// maxXHTTP caps the XHTTP slice on every setup.
-const maxXHTTP = 8
+// maxXHTTP is the default XHTTP cap; the active cap scales with the budget.
+func xHTTPCap(budget int) int {
+	if n := budget / 3; n > 8 {
+		return n
+	}
+	return 8
+}
 
-// trimLegacySNIs caps config lists at the populate budget so installs created
+// sniBudget returns the operator's REALITY budget per core (config
+// server.sni_max_per_core, default 40). The XHTTP cap scales one third of it.
+func sniLimits(cfg *config.Config) (int, int) {
+	b := cfg.Server.SNIMaxPerCore
+	if b <= 0 {
+		b = maxPerCore
+	}
+	return b, xHTTPCap(b)
+}
+
+// trimLegacySNIs caps config lists at the active budget so installs created
 // before the volume policy converge to the same readable size on every setup.
 // The FIRST entries are kept — legacy lists were ranked at creation time.
 // Returns how many entries were dropped.
 func trimLegacySNIs(cfg *config.Config) int {
+	budget, xcap := sniLimits(cfg)
 	dropped := 0
-	if n := len(cfg.Cores.Xray.Reality) - maxPerCore; n > 0 {
+	if n := len(cfg.Cores.Xray.Reality) - budget; n > 0 {
 		dropped += n
-		cfg.Cores.Xray.Reality = cfg.Cores.Xray.Reality[:maxPerCore]
+		cfg.Cores.Xray.Reality = cfg.Cores.Xray.Reality[:budget]
 	}
-	if n := len(cfg.Cores.Shoes.Reality) - maxPerCore; n > 0 {
+	if n := len(cfg.Cores.Shoes.Reality) - budget; n > 0 {
 		dropped += n
-		cfg.Cores.Shoes.Reality = cfg.Cores.Shoes.Reality[:maxPerCore]
+		cfg.Cores.Shoes.Reality = cfg.Cores.Shoes.Reality[:budget]
 	}
-	if n := len(cfg.Cores.Singbox.Reality) - maxPerCore; n > 0 {
+	if n := len(cfg.Cores.Singbox.Reality) - budget; n > 0 {
 		dropped += n
-		cfg.Cores.Singbox.Reality = cfg.Cores.Singbox.Reality[:maxPerCore]
+		cfg.Cores.Singbox.Reality = cfg.Cores.Singbox.Reality[:budget]
 	}
-	if n := len(cfg.Cores.Xray.XHTTP) - maxXHTTP; n > 0 {
+	if n := len(cfg.Cores.Xray.XHTTP) - xcap; n > 0 {
 		dropped += n
-		cfg.Cores.Xray.XHTTP = cfg.Cores.Xray.XHTTP[:maxXHTTP]
+		cfg.Cores.Xray.XHTTP = cfg.Cores.Xray.XHTTP[:xcap]
 	}
 	return dropped
 }
@@ -208,14 +226,15 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 	// bounded pool per core — enough distinct REALITY destinations to rotate
 	// against blocks, few enough that nginx/firewall/clients stay readable.
 	// Each SNI is unique (sniBudget never repeats a host) and latency-ranked.
+	budget, xcap := sniLimits(cfg)
 	total := len(ranked)
-	xhttpN := min(min(total/8, 24), 8)
+	xhttpN := min(min(total/8, xcap), xcap)
 	rest := max(total-xhttpN-1, 0) // reserve one for the shared best SNI below
-	xrayN := min(rest*35/100, maxPerCore)
-	shoesN := min(rest*33/100, maxPerCore)
-	singboxN := min(rest-xrayN-shoesN, maxPerCore)
+	xrayN := min(rest*35/100, budget)
+	shoesN := min(rest*33/100, budget)
+	singboxN := min(rest-xrayN-shoesN, budget)
 	if assigned := xhttpN + xrayN + shoesN + singboxN + 2; assigned < total {
-		log("auto-SNI: %d hosts fit — keeping the best %d (cap %d per core; set to rotate every few weeks)", total, assigned, maxPerCore)
+		log("auto-SNI: %d hosts fit — keeping the best %d (cap %d per core; set to rotate every few weeks)", total, assigned, budget)
 	}
 
 	// xray: bulk vless+vision REALITY + a CDN-leaning XHTTP slice

@@ -19,7 +19,7 @@ func TestRender(t *testing.T) {
 		"127.0.0.1:11003;",
 		"default                          127.0.0.1:8080;",
 		"listen 443 reuseport;",
-		"listen 80;",
+		"listen 80 default_server;",
 		"location ~ ^/s/",
 	} {
 		if !strings.Contains(out, want) {
