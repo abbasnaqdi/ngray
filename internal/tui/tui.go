@@ -83,6 +83,7 @@ type domainForm struct {
 	focused int
 	editing bool
 	editBuf string
+	hint    string // inline error (e.g. "domain is required"); red, one line
 }
 
 type Model struct {

@@ -211,6 +211,9 @@ func (m Model) viewDomainForm() string {
 
 	b.WriteString(titleStyle.Render("Domain / proxy") + "\n")
 	b.WriteString(dimStyle.Render("serve the subscription and/or a service behind a trusted domain") + "\n\n")
+	if d.hint != "" {
+		b.WriteString(errStyle.Render("  ✗ "+d.hint) + "\n\n")
+	}
 
 	row := func(idx int, label, val, hint string, editing bool) string {
 		focused := d.focused == idx

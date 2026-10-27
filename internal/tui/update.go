@@ -196,7 +196,6 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.form.editing {
 		return m.updateFormEditing(msg)
 	}
-
 	f := &m.form
 	switch msg.String() {
 	case "ctrl+c":
@@ -253,15 +252,40 @@ func (m Model) updateFormEditing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		f.editing = false // discard, keep old value
 	case "backspace", "ctrl+h":
-		if len(f.editBuf) > 0 {
-			f.editBuf = f.editBuf[:len(f.editBuf)-1]
-		}
+		f.editBuf = runesCut(f.editBuf)
 	default:
-		if s := msg.String(); len(s) == 1 && s[0] >= 32 && s[0] < 127 {
-			f.editBuf += s
-		}
+		f.editBuf = appendKey(f.editBuf, msg)
 	}
 	return m, nil
+}
+
+// appendKey appends printable input to buf. Typed characters and an entire
+// terminal paste both arrive as KeyRunes (a paste is one multi-rune msg with
+// Paste=true); space has its own key type. Control keys land in the enclosing
+// switch above and must not be appended verbatim (their String() is "ctrl+a").
+func appendKey(buf string, msg tea.KeyMsg) string {
+	switch msg.Type {
+	case tea.KeyRunes:
+		if len(msg.Runes) > 0 {
+			// Not msg.String(): for multi-rune input bubbletea renders
+			// "[content]" (bracketed display form), which would corrupt
+			// pasted values.
+			return buf + string(msg.Runes)
+		}
+	case tea.KeySpace:
+		return buf + " "
+	}
+	return buf
+}
+
+// runesCut drops the last *rune* (not byte) so multi-byte characters stay
+// intact while editing.
+func runesCut(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	return string(r[:len(r)-1])
 }
 
 func (m Model) submitForm() (tea.Model, tea.Cmd) {
@@ -295,10 +319,14 @@ func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch d.focused {
 			case dfDomain:
 				d.domain = d.editBuf
+				d.hint = ""
 			case dfTarget:
 				d.target = d.editBuf
 			case dfToken:
-				d.cfToken = d.editBuf
+				// A clipboard-copied token usually carries the trailing
+				// newline / spaces from the dashboard page; strip it or CF
+				// auth fails.
+				d.cfToken = strings.TrimSpace(d.editBuf)
 			}
 			d.editing = false
 			if msg.String() == "tab" && d.focused < dfProceed {
@@ -306,14 +334,11 @@ func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "esc":
 			d.editing = false
+			d.hint = ""
 		case "backspace", "ctrl+h":
-			if len(d.editBuf) > 0 {
-				d.editBuf = d.editBuf[:len(d.editBuf)-1]
-			}
+			d.editBuf = runesCut(d.editBuf)
 		default:
-			if s := msg.String(); len(s) == 1 && s[0] >= 32 && s[0] < 127 {
-				d.editBuf += s
-			}
+			d.editBuf = appendKey(d.editBuf, msg)
 		}
 		return m, nil
 	}
@@ -351,8 +376,10 @@ func (m Model) updateDomainForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) submitDomainForm() (tea.Model, tea.Cmd) {
 	d := m.domain
 	d.domain = strings.TrimSpace(strings.ToLower(d.domain))
+	d.hint = ""
 	if d.domain == "" {
 		d.editing, d.focused, d.editBuf = true, dfDomain, d.domain
+		d.hint = "domain is required — press enter and type/paste it"
 		m.domain = d
 		return m, nil
 	}
