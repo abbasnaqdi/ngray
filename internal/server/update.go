@@ -77,10 +77,9 @@ func UpdateCores(ctx context.Context, confirm func(string) bool, log func(string
 //     SHA256SUMS before anything is replaced. The SNI candidate pool ships in
 //     the release too and is refreshed alongside the binary.
 //  2. When allowSource is set and no release exists (the repo is private /
-//     Actions billing locked) and this invocation runs from a git checkout,
-//     fall back to the source path: `scripts/update.sh` (fetch → build →
-//     install), streamed to log. The launch-time auto-update passes false so
-//     startup never waits on a source rebuild.
+//     Actions billing locked), rebuild from source: use the current checkout
+//     when there is one, otherwise clone main into a temp dir first. The
+//     launch-time auto-update passes false so startup never waits on a build.
 func SelfUpdate(ctx context.Context, log func(string, ...any), allowSource bool) error {
 	sys := system.New()
 	latest, err := sys.LatestVersion(ctx, SelfRepo)
@@ -97,10 +96,14 @@ func SelfUpdate(ctx context.Context, log func(string, ...any), allowSource bool)
 		}
 		return selfUpdateRelease(ctx, sys, latest, log)
 	}
-	// No (reachable) release — a source checkout can still self-update.
-	if allowSource && checkoutRoot() != "" {
-		log("no ng-ray release (repo private or Actions disabled) — updating from source instead")
-		return selfUpdateSource(ctx, log)
+	// No (reachable) release — a source build is still possible.
+	if allowSource {
+		if root := checkoutRoot(); root != "" {
+			log("no ng-ray release (repo private or Actions disabled) — updating from this checkout")
+			return selfUpdateSource(ctx, log)
+		}
+		log("no ng-ray release — building from a fresh clone of %s", SelfRepo)
+		return selfUpdateClone(ctx, sys, log)
 	}
 	return fmt.Errorf("no ng-ray release found: %w\ninstall or update with:\n  curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | sudo bash", err, SelfRepo)
 }
@@ -156,7 +159,7 @@ func selfUpdateRelease(ctx context.Context, sys *system.Env, latest string, log 
 	if err := sys.Download(ctx, url, tmp); err != nil {
 		return err
 	}
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 	// Verify against the published SHA256SUMS before touching anything. Fail
 	// closed: an unverifiable release must never replace the running binary.
 	if ok, err := selfVerifyAsset(ctx, sys, asset, tmp, log); err != nil {
@@ -187,7 +190,7 @@ func selfVerifyAsset(ctx context.Context, sys *system.Env, asset, downloaded str
 	if err := sys.Download(ctx, sumsURL, tmp); err != nil {
 		return false, err
 	}
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 	f, err := os.Open(tmp)
 	if err != nil {
 		return false, err
@@ -245,12 +248,43 @@ func selfRefreshCandidates(ctx context.Context, sys *system.Env, log func(string
 	log("SNI candidate pool refreshed")
 }
 
+// selfUpdateClone gives an installed binary the same source-update path as a
+// checkout: clone main into a temp dir and run the repo's update.sh.
+func selfUpdateClone(ctx context.Context, sys *system.Env, log func(string, ...any)) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("self-update rewrites %s — run as root: `sudo ngray update --self`", selfExeDir())
+	}
+	if !sys.Which("git") {
+		return fmt.Errorf("git is required for a source update — run the installer instead:\n  curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | sudo bash", SelfRepo)
+	}
+	dir, err := os.MkdirTemp("", "ngray-update-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	src := filepath.Join(dir, "ngray")
+	log("cloning https://github.com/%s.git…", SelfRepo)
+	if _, err := sys.Run(ctx, "git", "clone", "--depth", "1", "--branch", "main",
+		"https://github.com/"+SelfRepo+".git", src); err != nil {
+		return fmt.Errorf("git clone: %w", err)
+	}
+	return runUpdateScript(ctx, src, log)
+}
+
 // selfUpdateSource runs scripts/update.sh inside the checkout, streaming its
 // output through log. The script performs fetch/reset, build and install —
 // the exact flow documented for source installs, so there is one code path.
 func selfUpdateSource(ctx context.Context, log func(string, ...any)) error {
-	root := checkoutRoot()
-	cmd := exec.CommandContext(ctx, "bash", filepath.Join(root, "scripts", "update.sh"))
+	return runUpdateScript(ctx, checkoutRoot(), log)
+}
+
+// runUpdateScript executes scripts/update.sh from root and streams its output.
+func runUpdateScript(ctx context.Context, root string, log func(string, ...any)) error {
+	if root == "" {
+		return fmt.Errorf("not in a git checkout")
+	}
+	script := filepath.Join(root, "scripts", "update.sh")
+	cmd := exec.CommandContext(ctx, "bash", script)
 	cmd.Dir = root
 	out, err := cmd.StdoutPipe()
 	if err != nil {
@@ -264,7 +298,10 @@ func selfUpdateSource(ctx context.Context, log func(string, ...any)) error {
 	for sc.Scan() {
 		log("%s", sc.Text())
 	}
-	return cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("source update failed: %w\nrun the installer instead:\n  curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | sudo bash", err, SelfRepo)
+	}
+	return sc.Err()
 }
 
 // checkoutRoot returns the directory containing .git, walking up from the CWD

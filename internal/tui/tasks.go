@@ -57,7 +57,7 @@ func buildItems() []item {
 			desc:          "Tick exactly what to roll back: restore the pre-ngray nginx.conf, stop+disable services, remove configs, clear the firewall chain, remove state/certs, delete core binaries or the ngray binary itself.",
 			cleanupBefore: true},
 		{key: "u", name: "Update ngray",
-			desc: "Replace ngray with the latest release (SHA256-verified) or, when no release exists, rebuild from this checkout via scripts/update.sh. Needs root; tells you the version it lands on.",
+			desc: "Replace ngray with the latest release (SHA256-verified) or, when no release exists, rebuild from main (checkout or fresh clone). Needs root; tells you the version it lands on.",
 			task: taskSelfUpdate},
 	}
 }

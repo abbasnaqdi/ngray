@@ -110,7 +110,7 @@ re-running this upgrades in place.
 ### Update
 
 ```bash
-sudo ngray update --self    # one command; falls back to scripts/update.sh in a checkout
+sudo ngray update --self    # release, or source rebuild (checkout or fresh clone)
 ```
 
 ### Deploy to a server

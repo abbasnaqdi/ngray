@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,5 +37,28 @@ func TestCheckoutRootFind(t *testing.T) {
 	}
 	if got := checkoutRoot(); got != "" {
 		t.Errorf("checkoutRoot outside a repo = %q, want \"\"", got)
+	}
+}
+
+// TestRunUpdateScriptStreams covers the fresh-clone update path: the cloned
+// repo's update.sh output must reach the task log line by line.
+func TestRunUpdateScriptStreams(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(root, "scripts", "update.sh")
+	if err := os.WriteFile(script, []byte("echo first\necho second\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	err := runUpdateScript(context.Background(), root, func(f string, a ...any) {
+		lines = append(lines, fmt.Sprintf(f, a...))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || lines[0] != "first" || lines[1] != "second" {
+		t.Fatalf("streamed lines = %q, want [first second]", lines)
 	}
 }
