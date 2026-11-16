@@ -102,7 +102,7 @@ func SelfUpdate(ctx context.Context, log func(string, ...any), allowSource bool)
 		log("no ng-ray release (repo private or Actions disabled) — updating from source instead")
 		return selfUpdateSource(ctx, log)
 	}
-	return fmt.Errorf("no ng-ray release found: %w\nnot a git checkout either — install from source:\n  git clone %s && cd ngray && sudo make install", err, "https://github.com/abbasnaqdi/ng-ray")
+	return fmt.Errorf("no ng-ray release found: %w\ninstall or update with:\n  curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | sudo bash", err, SelfRepo)
 }
 
 // AutoUpdateOnLaunch is the pre-TUI self-update check: bounded, silent on any
@@ -122,7 +122,7 @@ func AutoUpdateOnLaunch(ctx context.Context, log func(string, ...any)) bool {
 	if err != nil || latest == "" || latest == version.Version {
 		return false // no release yet / network down / up to date
 	}
-	tag, _ := sys.LatestTag(ctx, SelfRepo)
+	tag, _ := sys.LatestTag(cctx, SelfRepo)
 	expected := "v" + version.Version
 	if version.Commit != "" && version.Commit != "none" {
 		expected += "-" + version.Commit
@@ -156,11 +156,12 @@ func selfUpdateRelease(ctx context.Context, sys *system.Env, latest string, log 
 	if err := sys.Download(ctx, url, tmp); err != nil {
 		return err
 	}
-	// Verify against the published SHA256SUMS before touching anything.
+	defer os.Remove(tmp)
+	// Verify against the published SHA256SUMS before touching anything. Fail
+	// closed: an unverifiable release must never replace the running binary.
 	if ok, err := selfVerifyAsset(ctx, sys, asset, tmp, log); err != nil {
-		log("warning: could not verify %s against SHA256SUMS: %v", asset, err)
+		return fmt.Errorf("could not verify %s against SHA256SUMS: %w", asset, err)
 	} else if !ok {
-		os.Remove(tmp)
 		return fmt.Errorf("SHA256 mismatch for %s — download corrupted or tampered; use a source build instead", asset)
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
@@ -175,8 +176,8 @@ func selfUpdateRelease(ctx context.Context, sys *system.Env, latest string, log 
 }
 
 // selfVerifyAsset downloads SHA256SUMS and checks the downloaded file.
-// Returns (false, nil) on a hash mismatch, an error when the sums file is
-// absent/unmatchable (caller may treat that as non-fatal).
+// Returns (false, nil) on a hash mismatch and an error when the sums file is
+// absent/unmatchable. Callers must fail closed.
 func selfVerifyAsset(ctx context.Context, sys *system.Env, asset, downloaded string, log func(string, ...any)) (bool, error) {
 	sumsURL, err := sys.AssetURL(ctx, SelfRepo, `^SHA256SUMS$`)
 	if err != nil {
@@ -199,6 +200,9 @@ func selfVerifyAsset(ctx context.Context, sys *system.Env, asset, downloaded str
 		if len(fields) == 2 && fields[1] == asset {
 			want = strings.ToLower(fields[0])
 		}
+	}
+	if err := sc.Err(); err != nil {
+		return false, err
 	}
 	if want == "" {
 		return false, fmt.Errorf("%s not listed in SHA256SUMS", asset)
@@ -248,7 +252,10 @@ func selfUpdateSource(ctx context.Context, log func(string, ...any)) error {
 	root := checkoutRoot()
 	cmd := exec.CommandContext(ctx, "bash", filepath.Join(root, "scripts", "update.sh"))
 	cmd.Dir = root
-	out, _ := cmd.StdoutPipe()
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
 	cmd.Stderr = cmd.Stdout //nolint // same pipe is fine for streaming
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start scripts/update.sh: %w", err)

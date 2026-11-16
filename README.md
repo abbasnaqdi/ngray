@@ -103,9 +103,9 @@ curl -fsSL https://raw.githubusercontent.com/abbasnaqdi/ngray/main/install.sh | 
 Downloads the latest prebuilt binary from GitHub Releases (verified with
 SHA256SUMS), installs it to `/usr/local/bin/ngray`, fetches the SNI list,
 initializes `/etc/ngray/config.yml`, and hands off to the TUI. If no release
-binary is available yet, it builds from source and installs Go if missing.
-Every push to `main` republishes the binary, so re-running this upgrades in
-place.
+binary is available yet, it builds from source and installs Go if missing —
+no `make` or `git` required. Every push to `main` republishes the binary, so
+re-running this upgrades in place.
 
 ### Update
 
