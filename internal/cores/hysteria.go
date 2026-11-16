@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/abbasnaqdi/ng-ray/internal/config"
 	"github.com/abbasnaqdi/ng-ray/internal/links"
@@ -36,15 +35,7 @@ func (Hysteria) Install(ctx context.Context, sys *system.Env) error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(os.TempDir(), "hysteria-linux-amd64")
-	if err := sys.Download(ctx, url, tmp); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp, 0o755); err != nil {
-		return err
-	}
-	// Atomic rename avoids ETXTBSY when replacing a running binary.
-	if err := os.Rename(tmp, hyBin); err != nil {
+	if err := installDownloaded(ctx, sys, url, hyBin); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(hyDir, 0o755); err != nil {

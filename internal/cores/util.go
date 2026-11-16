@@ -3,12 +3,37 @@ package cores
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/abbasnaqdi/ng-ray/internal/system"
 )
 
 func itoa(i int) string { return strconv.Itoa(i) }
+
+// installDownloaded fetches url into a sibling temp file and atomically renames
+// it over dest. The temp must live in dest's directory: /tmp is frequently a
+// different filesystem, so renaming from there fails with EXDEV. The sibling
+// rename also avoids ETXTBSY when dest is a running binary.
+func installDownloaded(ctx context.Context, sys *system.Env, url, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	tmp := dest + ".new"
+	if err := sys.Download(ctx, url, tmp); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
 
 // detect reports whether cmd is installed. It prefers a parsed semver but
 // falls back to "installed" when the binary is present yet its version output
