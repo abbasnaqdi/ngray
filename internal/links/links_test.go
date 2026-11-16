@@ -109,8 +109,8 @@ func TestAnyTLSWarmPool(t *testing.T) {
 }
 
 // TestCloudflareFrontedEndpoints verifies the CF-fronted WS/XHTTP endpoints
-// render real-TLS URIs (no reality, no insecure) pointed at the domain, and
-// appear as ws/xhttp sing-box outbounds.
+// render real-TLS URIs (no reality, no insecure) pointed at the domain. WS is
+// a sing-box transport; XHTTP is Xray-only and must not leak into the JSON.
 func TestCloudflareFrontedEndpoints(t *testing.T) {
 	ws := Endpoint{Tag: "cf-ws-example", Proto: "vless-ws-tls", Server: "example.com", Port: 443, SNI: "example.com", UUID: "uid", Path: "/abc123"}
 	u := ws.URI()
@@ -133,10 +133,13 @@ func TestCloudflareFrontedEndpoints(t *testing.T) {
 		t.Fatalf("SingboxJSON: %v", err)
 	}
 	s := string(b)
-	for _, want := range []string{`"type": "ws"`, `"type": "xhttp"`, "example.com"} {
+	for _, want := range []string{`"type": "ws"`, "example.com"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("singbox json missing %q", want)
 		}
+	}
+	if strings.Contains(s, `"type": "xhttp"`) {
+		t.Errorf("xhttp must not appear in sing-box JSON: %s", s)
 	}
 	if strings.Contains(s, `"reality"`) {
 		t.Errorf("cf outbounds must not contain reality: %s", s)
@@ -231,6 +234,7 @@ func TestMixed(t *testing.T) {
 	eps := []Endpoint{
 		{Tag: "cf-ws-test", Proto: "vless-ws-tls", Server: "www.example.org", Port: 443, SNI: "www.example.org", UUID: "u1", Path: "/t/a/b"},
 		{Tag: "xray-reality-rustlang", Proto: "vless-vision", Server: "1.2.3.4", Port: 443, SNI: "www.rust-lang.org", PublicKey: "k", ShortID: "s", UUID: "u2"},
+		{Tag: "xray-xhttp-cf", Proto: "vless-xhttp", Server: "1.2.3.4", Port: 443, SNI: "www.cloudflare.com", PublicKey: "k", ShortID: "s", UUID: "u3", Path: "/x"},
 	}
 	out, err := Mixed(eps)
 	if err != nil {
@@ -241,6 +245,11 @@ func TestMixed(t *testing.T) {
 	}
 	if !strings.Contains(out, "vless://u2@1.2.3.4") || !strings.Contains(out, "vless://u1@www.example.org") {
 		t.Fatalf("links lost:\n%s", out[:min(len(out), 300)])
+	}
+	// Sing-box has no xhttp transport: the mixed body is for sing-box clients,
+	// so the XHTTP link and JSON outbound must both be absent.
+	if strings.Contains(out, "u3@") || strings.Contains(out, `"type": "xhttp"`) {
+		t.Fatalf("xhttp leaked into mixed sing-box body:\n%s", out)
 	}
 	// The JSON tail must parse as sing-box outbounds (mieru included verbatim).
 	i := strings.Index(out, "\n\n")

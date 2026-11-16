@@ -21,11 +21,16 @@ func Subscription(eps []Endpoint) string {
 
 // Mixed returns a plain-TEXT subscription body for clients (e.g. nekoray) that
 // read raw share links and/or sing-box JSON straight from the body: every
-// share URI on its own line, then a blank line, then the complete sing-box
-// JSON config. Nothing is base64-wrapped, so links stay visible and copyable.
+// sing-box-compatible share URI on its own line, then a blank line, then the
+// matching sing-box JSON. XHTTP is Xray-only (sing-box rejects
+// transport.type=xhttp), so it stays in the base64/Xray subscription and in
+// `ngray client links`, but not in this mixed body.
 func Mixed(eps []Endpoint) (string, error) {
 	var lines []string
 	for _, e := range eps {
+		if e.Raw == nil && !singboxCarries(e.Proto) {
+			continue
+		}
 		if u := e.URI(); u != "" {
 			lines = append(lines, u)
 		}
@@ -37,8 +42,21 @@ func Mixed(eps []Endpoint) (string, error) {
 	return strings.Join(lines, "\n") + "\n\n" + string(cfg) + "\n", nil
 }
 
+// singboxCarries reports whether sing-box has an outbound transport for proto.
+// XHTTP (vless-xhttp, vless-xhttp-tls) is deliberately absent: it is an
+// Xray-only transport and importing it aborts the whole sing-box profile.
+func singboxCarries(proto string) bool {
+	switch proto {
+	case "vless-vision", "vless-ws-tls", "anytls", "hysteria2", "tuic", "shadowtls":
+		return true
+	}
+	return false
+}
+
 // SingboxJSON builds a sing-box client config with outbounds for every
-// endpoint. ShadowTLS produces two chained outbounds (shadowtls + shadowsocks).
+// sing-box-compatible endpoint. ShadowTLS produces two chained outbounds
+// (shadowtls + shadowsocks). XHTTP endpoints are skipped because sing-box has
+// no xhttp transport; they remain available as raw links for Xray clients.
 //
 // When there is more than one endpoint it also appends two outbound groups:
 //   - "auto"   (urltest): continuously health-checks every endpoint and routes
@@ -60,6 +78,9 @@ func SingboxJSON(eps []Endpoint) ([]byte, error) {
 	var outs []map[string]any
 	var tags, blackoutTags []string
 	for _, e := range eps {
+		if e.Raw == nil && !singboxCarries(e.Proto) {
+			continue
+		}
 		o := singboxOutbounds(e)
 		outs = append(outs, o...)
 		// e.Tag is the dialable outbound for every proto (for shadowtls the inner
