@@ -171,9 +171,9 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 		len(hosts), len(prefHosts), len(extHosts))
 
 	// Sweep is a fast probe-then-measure pass at high concurrency, so the budget
-	// scales with the list: ~180s comfortably covers 1000+ candidates even on a
-	// distant VPS with many high-latency or dead hosts.
-	tctx, cancel := context.WithTimeout(ctx, 180*time.Second)
+	// scales with the list: ~300s comfortably covers ~1800 candidates (including
+	// the Germany/EU preferred block) even on a distant VPS with high latency.
+	tctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	var passed, failed int
@@ -238,16 +238,20 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 	log("auto-SNI: budget %d/core + %d XHTTP (server.sni_max_per_core)", budget, xcap)
 	total := len(ranked)
 	xhttpN := min(min(total/8, xcap), xcap)
-	rest := max(total-xhttpN-1, 0) // reserve one for the shared best SNI below
+
+	// xray: bulk vless+vision REALITY + a CDN-only XHTTP slice. Pick XHTTP
+	// first so origin hosts in the German/EU block cannot consume the CDN
+	// slots, and so the remaining capacity is computed from the real count.
+	xhttp := pop.xhttp(xhttpN)
+	if len(xhttp) < xhttpN {
+		log("auto-SNI: only %d CDN hosts available for XHTTP (wanted %d)", len(xhttp), xhttpN)
+	}
+	rest := max(total-len(xhttp)-1, 0) // reserve one for the shared best SNI below
 	xrayN := min(rest*35/100, budget)
 	shoesN := min(rest*33/100, budget)
 	singboxN := min(rest-xrayN-shoesN, budget)
-	if assigned := xhttpN + xrayN + shoesN + singboxN + 2; assigned < total {
-		log("auto-SNI: %d hosts fit — keeping the best %d (cap %d per core; set to rotate every few weeks)", total, assigned, budget)
-	}
 
-	// xray: bulk vless+vision REALITY + a CDN-leaning XHTTP slice
-	cfg.Cores.Xray.XHTTP = pop.xhttp(xhttpN)
+	cfg.Cores.Xray.XHTTP = xhttp
 	cfg.Cores.Xray.Reality = pop.reality(xrayN, "")
 
 	// shoes: mix anytls (primary) and vless_vision (backup)
@@ -255,6 +259,12 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 
 	// singbox: mix anytls (primary) and vless_vision (backup)
 	cfg.Cores.Singbox.Reality = pop.mixedReality(singboxN, "anytls", "vless_vision", 3)
+
+	assigned := len(cfg.Cores.Xray.XHTTP) + len(cfg.Cores.Xray.Reality) +
+		len(cfg.Cores.Shoes.Reality) + len(cfg.Cores.Singbox.Reality) + 2
+	if assigned < total {
+		log("auto-SNI: %d hosts fit — keeping the best %d (cap %d per core; set to rotate every few weeks)", total, assigned, budget)
+	}
 
 	// Independent-TLS cores and the subscription all share the same best SNI
 	// for their self-signed cert (or masquerade target). Reuse first remaining.
@@ -364,16 +374,24 @@ type sniBudget struct {
 }
 
 func (b *sniBudget) next() string {
+	return b.nextMatching(func(string) bool { return true })
+}
+
+// nextMatching returns the first unused ranked host accepted by match. Used by
+// XHTTP to restrict selection to CDN hosts without consuming (and thereby
+// dropping) the origin hosts that REALITY cores still need.
+func (b *sniBudget) nextMatching(match func(string) bool) string {
 	if b.used == nil {
 		b.used = map[string]bool{}
 	}
-	for len(b.ranked) > 0 {
-		h := b.ranked[0].Host
-		b.ranked = b.ranked[1:]
-		if !b.used[h] {
-			b.used[h] = true
-			return h
+	for i := 0; i < len(b.ranked); i++ {
+		h := b.ranked[i].Host
+		if b.used[h] || !match(h) {
+			continue
 		}
+		b.used[h] = true
+		b.ranked = append(b.ranked[:i], b.ranked[i+1:]...)
+		return h
 	}
 	return ""
 }
@@ -393,7 +411,7 @@ func (b *sniBudget) reality(n int, proto string) []config.Reality {
 func (b *sniBudget) xhttp(n int) []config.XHTTP {
 	var out []config.XHTTP
 	for i := 0; i < n; i++ {
-		h := b.next()
+		h := b.nextMatching(sni.CDNFit)
 		if h == "" {
 			break
 		}

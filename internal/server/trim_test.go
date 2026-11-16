@@ -11,6 +11,24 @@ import (
 
 // Pre-cap installs carried hundreds of REALITY routes; every setup must
 // converge to the same readable budget.
+// TestXHTTPPrefersCDN guards the XHTTP policy: a fast German/EU origin must
+// not consume a CDN slot, and it stays available for REALITY afterwards.
+func TestXHTTPPrefersCDN(t *testing.T) {
+	pop := &sniBudget{ranked: []sni.Result{
+		{Host: "fast.origin.example", Status: sni.StatusOK, MedianMS: 10},
+		{Host: "pypi.org", Status: sni.StatusOK, MedianMS: 50},
+		{Host: "www.cloudflare.com", Status: sni.StatusOK, MedianMS: 60},
+		{Host: "second.origin.example", Status: sni.StatusOK, MedianMS: 70},
+	}}
+	got := pop.xhttp(2)
+	if len(got) != 2 || got[0].SNI != "pypi.org" || got[1].SNI != "www.cloudflare.com" {
+		t.Fatalf("xhttp picked %+v, want CDN hosts", got)
+	}
+	if next := pop.next(); next != "fast.origin.example" {
+		t.Fatalf("origin host was consumed by XHTTP: next=%q", next)
+	}
+}
+
 func TestTrimLegacySNIs(t *testing.T) {
 	cfg := config.Default()
 	budget, xcap := sniLimits(cfg)

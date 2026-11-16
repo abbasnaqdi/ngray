@@ -52,3 +52,24 @@ func TestRankedTieredPrefersPreferred(t *testing.T) {
 		t.Errorf("tier order wrong: %+v", ranked)
 	}
 }
+
+// TestBundledCandidateTiers guards the shipped pool: the German/EU block must
+// stay in the preferred tier and the extended marker must remain effective.
+func TestBundledCandidateTiers(t *testing.T) {
+	pref, ext, err := LoadTiered("../../snis/candidates.sni")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pref) < 500 || len(ext) < 1000 {
+		t.Fatalf("tiers collapsed: preferred=%d extended=%d", len(pref), len(ext))
+	}
+	seen := map[string]bool{}
+	for _, h := range pref {
+		seen[h] = true
+	}
+	for _, want := range []string{"www.siemens.com", "www.uni-heidelberg.de", "www.hetzner.de"} {
+		if !seen[want] {
+			t.Errorf("Germany/EU host %q is not in the preferred tier", want)
+		}
+	}
+}

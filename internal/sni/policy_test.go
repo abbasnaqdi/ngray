@@ -7,6 +7,7 @@ func TestIranFiltered(t *testing.T) {
 		"www.google.com": true, "gstatic.com": true, "assets.site.google.com": true,
 		"www.debian.org": false, "python.org": false, "cdn.jsdelivr.net": false,
 		"x.com": true, "t.me": true, "apexrt.me": false, "WWW.TWITTER.COM.": true,
+		"github.global.ssl.fastly.net": true,
 	} {
 		if got := IranFiltered(host); got != want {
 			t.Errorf("IranFiltered(%q) = %v, want %v", host, got, want)
@@ -35,5 +36,17 @@ func TestOperatorFitGate(t *testing.T) {
 	ranked := Ranked([]Result{slow, ok})
 	if len(ranked) != 2 || ranked[0].Host != ok.Host {
 		t.Fatalf("slow host must rank last: %+v", ranked)
+	}
+}
+
+func TestCDNFit(t *testing.T) {
+	for host, want := range map[string]bool{
+		"pypi.org": true, "www.cloudflare.com": true, "registry.npmjs.org": true,
+		"cdn.jsdelivr.net": true, "www.uni-heidelberg.de": false,
+		"www.siemens.com": false, "notcdn.example.com": false,
+	} {
+		if got := CDNFit(host); got != want {
+			t.Errorf("CDNFit(%q) = %v, want %v", host, got, want)
+		}
 	}
 }
