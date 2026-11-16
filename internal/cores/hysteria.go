@@ -68,10 +68,13 @@ func (Hysteria) Build(p *Plan) (Result, error) {
 			"initConnReceiveWindow": 67108864, "maxConnReceiveWindow": 67108864,
 			"maxIdleTimeout": "60s", "keepAlivePeriod": "10s", "disablePathMTUDiscovery": false,
 		},
-		"ignoreClientBandwidth": true,
 		"masquerade": map[string]any{
 			"type": "proxy", "proxy": map[string]any{"url": "https://" + h.SNI, "rewriteHost": true},
 		},
+		// Leave ignoreClientBandwidth unset: a client that supplies bandwidth
+		// gets Brutal; one that does not falls back to BBR below. Hard-blocking
+		// client hints (the old default) forced everyone onto BBR.
+		"congestion": map[string]any{"type": "bbr", "bbrProfile": "aggressive"},
 	}
 	// obfs is optional: an empty Obfs disables it entirely (the server and
 	// client both drop the block). With salamander/gecko the type name is the

@@ -135,7 +135,8 @@ func (Mieru) Build(p *Plan) (Result, error) {
 				"domainName":   "",
 				"portBindings": []map[string]any{{"port": m.Port, "protocol": "TCP"}},
 			}},
-			"mtu": 1400,
+			"mtu":          1400,
+			"multiplexing": map[string]any{"level": "MULTIPLEXING_MIDDLE"},
 		}},
 	}
 	clientJSON, err := json.MarshalIndent(clientCfg, "", "  ")
@@ -153,7 +154,7 @@ func (Mieru) Build(p *Plan) (Result, error) {
 			"transport":    "TCP",
 			"username":     m.User,
 			"password":     pw,
-			"multiplexing": "MULTIPLEXING_LOW",
+			"multiplexing": "MULTIPLEXING_MIDDLE",
 		},
 	}
 	return Result{

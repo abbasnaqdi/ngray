@@ -39,6 +39,7 @@ Usage:
   ngray server status    show core versions, services and listening ports
   ngray client links     print share links and the subscribe URL
   ngray sni test [host…] test SNIs for REALITY fitness and latency
+  ngray sni regen        re-test and re-rank the SNI pool
   ngray sni discover     find REALITY SNIs hosted near your server
   ngray domain check [d] check if a domain is a working CF-fronted path here
   ngray domain set d     enable Cloudflare fronting for a domain in config.yml
@@ -201,8 +202,11 @@ func cmdSNI(args []string) error {
 	if len(args) > 0 && args[0] == "discover" {
 		return cmdSNIDiscover(args[1:])
 	}
+	if len(args) > 0 && args[0] == "regen" {
+		return cmdSNIRegen()
+	}
 	if len(args) == 0 || args[0] != "test" {
-		return fmt.Errorf("usage: ngray sni test [host…] | ngray sni discover [--ref IP] [--blocks N]")
+		return fmt.Errorf("usage: ngray sni test [host…] | ngray sni regen | ngray sni discover [--ref IP] [--blocks N]")
 	}
 	hosts := args[1:]
 	if len(hosts) == 0 {
@@ -967,4 +971,28 @@ func candidatesPath() string {
 		return "/etc/ngray/snis/candidates.sni"
 	}
 	return rel
+}
+
+// cmdSNIRegen re-tests the candidate pool and rewrites the SNI lists in
+// config.yml. Run `server setup` afterwards to deploy them.
+func cmdSNIRegen() error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("sni regen rewrites %s — run as root: `sudo ngray sni regen`", config.Path())
+	}
+	cfg, err := config.LoadOrDefault(config.Path())
+	if err != nil {
+		return err
+	}
+	log := func(f string, a ...any) { fmt.Printf("  "+f+"\n", a...) }
+	if err := server.RegenerateSNIs(context.Background(), candidatesPath(), config.Path(), cfg, log); err != nil {
+		return err
+	}
+	if st, err := state.Load(state.Path()); err == nil {
+		st.LastSNIProbe = time.Now()
+		if err := st.Save(); err != nil {
+			return err
+		}
+	}
+	fmt.Println("  SNI pool rewritten — run `sudo ngray server setup` to deploy it")
+	return nil
 }

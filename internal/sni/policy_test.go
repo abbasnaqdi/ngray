@@ -20,13 +20,20 @@ func TestOperatorFitGate(t *testing.T) {
 		t.Fatal("fit fast host must survive")
 	}
 	slow := ok
+	slow.Host = "slow.example.com"
 	slow.MedianMS = 900
-	if operatorFit(slow) {
-		t.Fatal("ping beyond MaxMedianMS must be excluded")
+	if !operatorFit(slow) {
+		t.Fatal("slow but fit host must remain for pool diversity")
 	}
 	filtered := ok
 	filtered.Host = "cdn.telegram.org"
 	if operatorFit(filtered) {
 		t.Fatal("Iran-filtered brand must be excluded")
+	}
+
+	// Slow hosts are kept, but must sort after fast ones.
+	ranked := Ranked([]Result{slow, ok})
+	if len(ranked) != 2 || ranked[0].Host != ok.Host {
+		t.Fatalf("slow host must rank last: %+v", ranked)
 	}
 }

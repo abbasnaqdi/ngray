@@ -4,6 +4,7 @@ package links
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/url"
@@ -33,7 +34,8 @@ type Endpoint struct {
 	Path string // xhttp
 
 	// Self-signed cert fields (used instead of insecure=1/allow_insecure=1).
-	// Fingerprint is base64(SHA256(DER)) — used in URI pinSHA256 parameter.
+	// Fingerprint is base64(SHA256(DER)); URI() normalises it to the 64-char
+	// hex form that TUIC and Xray-compatible Hysteria2 clients require.
 	// CertPEM is the raw PEM — embedded in sing-box JSON outbound.
 	Fingerprint string
 	CertPEM     string
@@ -107,8 +109,8 @@ func (e Endpoint) URI() string {
 			q.Set("obfs-password", e.ObfsPass)
 		}
 		q.Set("sni", e.SNI)
-		if e.Fingerprint != "" {
-			q.Set("pinSHA256", e.Fingerprint)
+		if pin := pinHex(e.Fingerprint); pin != "" {
+			q.Set("pinSHA256", pin)
 		} else {
 			q.Set("insecure", "1")
 		}
@@ -117,23 +119,42 @@ func (e Endpoint) URI() string {
 		q.Set("congestion_control", "bbr")
 		q.Set("alpn", "h3")
 		q.Set("sni", e.SNI)
-		if e.Fingerprint != "" {
-			q.Set("pinSHA256", e.Fingerprint)
+		if pin := pinHex(e.Fingerprint); pin != "" {
+			q.Set("pinSHA256", pin)
 		} else {
 			q.Set("allow_insecure", "1")
 		}
 		return fmt.Sprintf("tuic://%s:%s@%s?%s#%s", e.UUID, e.TUICPass, host, q.Encode(), frag(e.Tag))
 	case "shadowtls":
-		// SIP002 Shadowsocks URI with the shadow-tls plugin. The plugin options
-		// are a single semicolon-separated string under one "plugin" parameter
-		// (name;opt=val;…) — emitting separate shadow-tls-* query params is
-		// non-standard and SIP002 clients ignore it.
-		// AuthPass = inner Shadowsocks password; Obfs = SS method; Password = ShadowTLS password.
-		userInfo := base64.StdEncoding.EncodeToString([]byte(e.Obfs + ":" + e.AuthPass))
-		q.Set("plugin", "shadow-tls;version=3;host="+e.SNI+";password="+e.Password)
-		return fmt.Sprintf("ss://%s@%s?%s#%s", userInfo, host, q.Encode(), frag(e.Tag))
+		// ShadowTLS is not a SIP003 plugin: NekoBox/v2rayN reject
+		// `plugin=shadow-tls` and fail the whole subscription import. This
+		// shape is distributed only through the chained sing-box JSON below.
+		return ""
 	}
 	return ""
+}
+
+// pinHex renders a certificate SHA-256 in the 64-character lowercase hex form
+// expected by TUIC and Xray-compatible Hysteria2 clients. Fingerprint may be
+// base64 (our CertFingerprint helper), bare hex, or colon-separated openssl
+// output; an unrecognised value returns "" so the caller can fall back to
+// insecure=1.
+func pinHex(fp string) string {
+	fp = strings.TrimSpace(fp)
+	if fp == "" {
+		return ""
+	}
+	bare := strings.ReplaceAll(fp, ":", "")
+	if len(bare) == 64 {
+		if _, err := hex.DecodeString(bare); err == nil {
+			return strings.ToLower(bare)
+		}
+	}
+	b, err := base64.StdEncoding.DecodeString(fp)
+	if err != nil || len(b) != 32 {
+		return ""
+	}
+	return hex.EncodeToString(b)
 }
 
 func frag(tag string) string { return url.PathEscape(tag) }

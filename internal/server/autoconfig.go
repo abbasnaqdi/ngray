@@ -40,7 +40,7 @@ func xHTTPCap(budget int) int {
 }
 
 // sniBudget returns the operator's REALITY budget per core (config
-// server.sni_max_per_core, default 40). The XHTTP cap scales one third of it.
+// server.sni_max_per_core, default 160). The XHTTP cap scales one third of it.
 func sniLimits(cfg *config.Config) (int, int) {
 	b := cfg.Server.SNIMaxPerCore
 	if b <= 0 {
@@ -189,6 +189,13 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 	// Tiered: exhaust preferred (whitelist-friendly) hosts before extended ones,
 	// so a lower-latency-but-unwhitelisted domain never displaces a proven one.
 	ranked := sni.RankedTiered(results, preferred)
+	slow := 0
+	for _, r := range ranked {
+		if sni.Slow(r) {
+			slow++
+		}
+	}
+	log("auto-SNI: %d usable after policy (%d slower than %dms kept for diversity)", len(ranked), slow, sni.MaxMedianMS)
 	if len(ranked) == 0 {
 		log("auto-SNI: no SNIs passed fitness check — keeping current config")
 		return nil
@@ -228,6 +235,7 @@ func populateSNIs(ctx context.Context, candidatesPath, configPath string, cfg *c
 	// against blocks, few enough that nginx/firewall/clients stay readable.
 	// Each SNI is unique (sniBudget never repeats a host) and latency-ranked.
 	budget, xcap := sniLimits(cfg)
+	log("auto-SNI: budget %d/core + %d XHTTP (server.sni_max_per_core)", budget, xcap)
 	total := len(ranked)
 	xhttpN := min(min(total/8, xcap), xcap)
 	rest := max(total-xhttpN-1, 0) // reserve one for the shared best SNI below

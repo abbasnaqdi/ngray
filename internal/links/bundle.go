@@ -186,7 +186,10 @@ func singboxOutbounds(e Endpoint) []map[string]any {
 			"type": "anytls", "tag": e.Tag,
 			"server": e.Server, "server_port": e.Port,
 			"password": e.Password,
-			"tls":      realityTLS,
+			// Keep a small warm pool so a new request does not pay a full
+			// TLS/AnyTLS handshake every time.
+			"min_idle_session": 4,
+			"tls":              realityTLS,
 		}}
 
 	case "hysteria2":

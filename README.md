@@ -256,10 +256,10 @@ Add one URL in any app; all configs appear and auto-update, and the sing-box `au
 `config.yml` lives next to the binary. `config.example.yml` shows all options with explanations. On a fresh server with no `config.yml`, setup auto-selects optimal SNIs from `snis/candidates.sni`.
 
 Key facts:
-- Volume policy: **≤40 REALITY routes per core by default** (`server.sni_max_per_core` raises it) + budget/3 XHTTP; each route SNI ships a domain (`cf-ws-…`) + direct-IP pair. The **primary subscribe link stays FIXED across setups**; rotation is opt-in (wizard toggle *Rotate sub link* — a rotated link kills all previously distributed URLs through nginx's token guard).
+- Volume policy: **≤160 REALITY routes per core by default** (`server.sni_max_per_core` raises it) + budget/3 XHTTP; each route SNI ships a domain (`cf-ws-…`) + direct-IP pair. The **primary subscribe link stays FIXED across setups**; rotation is opt-in (wizard toggle *Rotate sub link* — a rotated link kills all previously distributed URLs through nginx's token guard).
 - Every REALITY SNI across all cores must be unique (nginx routes one SNI to one backend).
 - `www.X` and `X` count as separate SNIs — use both for double coverage.
-- Iran policy: hosts filtered/interfered with on Iranian networks (Google, YouTube, X/Twitter, Telegram, GitHub, Meta, Wikipedia, OpenAI, TikTok, …) are **excluded as SNI**, alongside destinations requiring >280ms from the server; each quality SNI is served as a *pair* — the CF-fronted domain subscription (primary) + its direct-IP share link. `subscription.front_sni` is given its own dedicated SNI so it never collides with a route.
+- Iran policy: hosts filtered/interfered with on Iranian networks (Google, YouTube, X/Twitter, Telegram, GitHub, Meta, Wikipedia, OpenAI, TikTok, …) are **excluded as SNI**; fit hosts slower than the preferred 280ms handshake threshold stay in the pool but rank last (hard cutoff 2s); each quality SNI is served as a *pair* — the CF-fronted domain subscription (primary) + its direct-IP share link. `subscription.front_sni` is given its own dedicated SNI so it never collides with a route.
 - `cores.xray.cdn` enables optional Cloudflare fronting (domain WS proxy + CF-served subscription) — see [Cloudflare fronting](#cloudflare-fronting-optional-ip-independent-fallback).
 - Cores without nginx routing (hysteria2, TUIC, ShadowTLS, mieru) have their own public ports.
 - `proxy-state.json` (0600) persists all generated keys, credentials and the subscribe token — re-running setup is idempotent.
@@ -286,6 +286,8 @@ proxy-state.json) — the separate re-select step no longer exists. Manual sweep
 REALITY routes per core; XHTTP scales at budget/3; every route SNI also gets a
 Cloudflare `cf-ws-<sni>` twin, so endpoints ≈ 2× SNIs. Raise it (e.g. 100) for a
 bigger pool and more domain+IP pairs — trim/limits apply on every setup.
+Fit hosts slower than the preferred 280ms threshold are kept and ranked last
+(hard cutoff 2s), so a thin fast tier cannot collapse the pool to a handful.
 
 ---
 

@@ -25,10 +25,10 @@ var iranDeniedSuffixes = []string{
 	"archive.org", "archive.today",
 }
 
-// MaxMedianMS caps the handshake latency the SERVER (typically in Europe)
-// measures toward the SNI destination. Beyond this the origin usually sits on
-// another continent (US/AU), which inflates the already-long
-// Iran→Europe→origin route — camouflage is not worth that round trip.
+// MaxMedianMS is the preferred handshake latency threshold. Hosts slower than
+// this are ranked after fast ones but are NOT discarded: on blocked networks a
+// larger, diverse pool is worth more than a perfect handshake RTT, and the
+// caller applies a hard 2s dead-weight cutoff separately.
 const MaxMedianMS = 280
 
 // IranFiltered reports whether a host borrows an Iran-blocked organisation's
@@ -43,10 +43,10 @@ func IranFiltered(host string) bool {
 	return false
 }
 
-// Slow reports whether the measured latency disqualifies the host per
-// MaxMedianMS.
+// Slow reports whether the measured latency is above the preferred threshold.
 func Slow(r Result) bool { return r.MedianMS > MaxMedianMS }
 
-// operatorFit is the full selection policy: REALITY-fit, latency-capped and
-// not an Iran-filtered brand.
-func operatorFit(r Result) bool { return r.Fit() && !Slow(r) && !IranFiltered(r.Host) }
+// operatorFit applies the hard policy: REALITY-fit and not an Iran-filtered
+// brand. Latency only affects ordering (Score), so a thin fast tier cannot
+// starve the pool down to a handful of SNIs.
+func operatorFit(r Result) bool { return r.Fit() && !IranFiltered(r.Host) }

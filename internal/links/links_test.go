@@ -2,6 +2,7 @@ package links
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -36,6 +37,74 @@ func TestVlessURIAndSubscription(t *testing.T) {
 	raw, err := base64.StdEncoding.DecodeString(sub)
 	if err != nil || !strings.Contains(string(raw), "vless://uid@") {
 		t.Errorf("subscription decode failed: %v %q", err, raw)
+	}
+}
+
+// TestPinsAreHex guards the client compatibility bug: CertFingerprint is
+// base64, but TUIC and Xray-compatible Hysteria2 clients require pinSHA256 to
+// be 64 lowercase hex characters.
+func TestPinsAreHex(t *testing.T) {
+	raw := []byte("0123456789abcdef0123456789abcdef") // 32 bytes
+	fp := base64.StdEncoding.EncodeToString(raw)
+	want := hex.EncodeToString(raw)
+
+	tuic := Endpoint{
+		Tag: "sb-tuic", Proto: "tuic", Server: "1.2.3.4", Port: 443,
+		SNI: "www.example.com", UUID: "uid", TUICPass: "pw", Fingerprint: fp,
+	}
+	if u := tuic.URI(); !strings.Contains(u, "pinSHA256="+want) || strings.Contains(u, "allow_insecure") {
+		t.Errorf("tuic pin not hex: %q", u)
+	}
+
+	hy := Endpoint{
+		Tag: "hy2", Proto: "hysteria2", Server: "1.2.3.4", Port: 443,
+		SNI: "www.example.com", AuthPass: "pw", Fingerprint: fp,
+	}
+	if u := hy.URI(); !strings.Contains(u, "pinSHA256="+want) || strings.Contains(u, "insecure=1") {
+		t.Errorf("hysteria2 pin not hex: %q", u)
+	}
+
+	// Already-hex and colon-separated openssl fingerprints must also work.
+	bare := Endpoint{Tag: "bare", Proto: "tuic", Server: "1.2.3.4", Port: 443, SNI: "x", UUID: "u", TUICPass: "p", Fingerprint: strings.ToUpper(want)}
+	if u := bare.URI(); !strings.Contains(u, "pinSHA256="+want) {
+		t.Errorf("bare hex pin not normalised: %q", u)
+	}
+}
+
+// ShadowTLS has no standard share URI. Emitting ss:// with plugin=shadow-tls
+// makes NekoBox/v2rayN reject the whole subscription, so only the sing-box
+// JSON chain may carry it.
+func TestShadowTLSIsJSONOnly(t *testing.T) {
+	e := Endpoint{
+		Tag: "sb-shadowtls", Proto: "shadowtls", Server: "1.2.3.4", Port: 2443,
+		SNI: "www.example.com", Password: "outer", AuthPass: "inner", Obfs: "aes-128-gcm",
+	}
+	if u := e.URI(); u != "" {
+		t.Fatalf("shadowtls URI must be empty, got %q", u)
+	}
+	b, err := SingboxJSON([]Endpoint{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{`"type": "shadowtls"`, `"type": "shadowsocks"`, `"detour": "sb-shadowtls-stl"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("sing-box bundle missing %q: %s", want, s)
+		}
+	}
+}
+
+func TestAnyTLSWarmPool(t *testing.T) {
+	e := Endpoint{
+		Tag: "anytls", Proto: "anytls", Server: "1.2.3.4", Port: 443,
+		SNI: "www.example.com", Password: "pw",
+	}
+	b, err := SingboxJSON([]Endpoint{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"min_idle_session": 4`) {
+		t.Errorf("anytls outbound missing warm session pool: %s", b)
 	}
 }
 

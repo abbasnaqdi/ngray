@@ -139,7 +139,7 @@ client:
   #   anytls       — AnyTLS links (shoes + sing-box)
   #   hysteria2    — Hysteria2 links (standalone + shoes Rust)
   #   tuic         — TUIC v5 links (shoes Rust + sing-box)
-  #   shadowtls    — ShadowTLS v3 links (sing-box)
+  #   shadowtls    — ShadowTLS v3 (sing-box JSON only; no share URI)
   #   singbox_json — full sing-box client JSON bundle
   #   subscription — subscribe URL (http://IP/s/TOKEN)
   #   qr           — QR code for each link and the subscribe URL
