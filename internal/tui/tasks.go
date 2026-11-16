@@ -73,7 +73,7 @@ func taskSelfUpdate(ctx context.Context, emit func(string)) error {
 		return err
 	}
 	emit("")
-	emit(okStyle.Render("✓ done — press q, then start `sudo ngray` again to run the new binary"))
+	emit(okStyle.Render("✓ done — press enter/esc/q to restart into the new binary"))
 	return nil
 }
 

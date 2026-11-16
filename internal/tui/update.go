@@ -566,12 +566,17 @@ func (m Model) submitDomainForm() (tea.Model, tea.Cmd) {
 // ── Task view ─────────────────────────────────────────────────────────────────
 
 func (m Model) updateTask(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.restartAfter && (msg.String() == "enter" || msg.String() == "r") {
-		// Re-exec THIS binary (just replaced on disk) from itself: exec
-		// hands the tty to the new image and the old process exits after.
-		c := exec.Command(m.self)
-		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-		return m, tea.ExecProcess(c, func(error) tea.Msg { return tea.Quit() })
+	if m.restartAfter {
+		switch msg.String() {
+		case "enter", "r", "esc", "q", "backspace", "ctrl+c":
+			// Re-exec THIS binary (just replaced on disk) from itself: exec
+			// hands the tty to the new image and the old process exits after.
+			// Every normal exit path must re-exec, otherwise the user can
+			// return to the menu and run setup from the stale image.
+			c := exec.Command(m.self)
+			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+			return m, tea.ExecProcess(c, func(error) tea.Msg { return tea.Quit() })
+		}
 	}
 	switch msg.String() {
 	case "esc", "backspace", "q":

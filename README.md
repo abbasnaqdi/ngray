@@ -399,6 +399,7 @@ Rightel each allow a different set.
 ## Build
 
 ```bash
+make hooks      # once per clone: every commit auto-bumps the patch version
 make build      # static binary, version stamped from git
 make check      # gofmt + vet + tests
 make package    # pkg/release/ — binary + config.yml + SNI list, ready to scp

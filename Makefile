@@ -1,12 +1,13 @@
 # Version is read from version.go — single source of truth.
-# Bump the string there; everything else follows automatically.
+# The pre-commit hook bumps the patch automatically (install once: make hooks).
+# Bump minor/major manually; use `make bump` for a manual patch bump.
 VERSION := $(shell grep -oE '"[0-9]+\.[0-9]+\.[0-9][^"]*"' internal/version/version.go | tr -d '"')
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    := $(shell date -u +%Y-%m-%d)
 PKG     := github.com/abbasnaqdi/ng-ray/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
-.PHONY: build install test vet fmt lint check e2e dist release package clean
+.PHONY: build install test vet fmt lint check e2e dist release package clean hooks bump
 
 PREFIX ?= /usr/local
 SUDO := $(shell [ -w $(PREFIX)/bin ] 2>/dev/null && echo "" || echo sudo)
@@ -87,3 +88,11 @@ package: build
 clean:
 	rm -f ngray
 	rm -rf dist pkg
+
+# Install the versioned git hooks (auto patch bump on every commit).
+hooks:
+	@bash scripts/install-git-hooks.sh
+
+# Manual patch bump (minor/major: edit version.go yourself).
+bump:
+	@bash scripts/bump-version.sh

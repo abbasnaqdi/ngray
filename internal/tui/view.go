@@ -355,7 +355,7 @@ func (m Model) viewTask() string {
 	}
 	foot += "  " + dimStyle.Render("v"+version.Version)
 	if m.restartAfter && m.taskErr == nil {
-		foot = mutedStyle.Render("  enter restart to the new binary  ·  esc stay here") + "  " + dimStyle.Render("v"+version.Version)
+		foot = mutedStyle.Render("  enter/esc/q restart to the new binary") + "  " + dimStyle.Render("v"+version.Version)
 	}
 	// Surface the failure as a readable box instead of a single overflow line.
 	if m.taskErr != nil {

@@ -4,7 +4,19 @@
 
 Version lives in ONE place: `internal/version/version.go` → `Version = "x.y.z"`.
 
-The Makefile reads it automatically — no need to pass `VERSION=` anywhere.
+A versioned pre-commit hook bumps the patch on every commit, so installs and
+self-updates always land on a higher version. Install it once per clone:
+
+```bash
+make hooks          # git config core.hooksPath scripts/git-hooks
+make bump           # optional manual patch bump
+```
+
+Minor/major bumps are manual: edit `version.go`, stage it, and the hook leaves
+it alone. Skip one commit with `NGRAY_NO_VERSION_BUMP=1 git commit ...`.
+
+The Makefile/install/update build scripts read the file automatically — no
+need to pass `VERSION=` anywhere.
 
 ```bash
 # Build locally
@@ -24,11 +36,9 @@ make release
 
 ## Version bump policy
 
-- **Patch** (x.y.Z): bug fixes, doc updates
-- **Minor** (x.Y.0): new protocol, new core, new TUI feature
-- **Major** (X.0.0): breaking config schema change
-
-Bump `internal/version/version.go` before committing the release commit.
+- **Patch** (x.y.Z): automatic on every commit via the hook
+- **Minor** (x.Y.0): new protocol, new core, new TUI feature — edit + stage manually
+- **Major** (X.0.0): breaking config schema change — edit + stage manually
 
 ## Commit flow
 

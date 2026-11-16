@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Auto-bump the patch version on every commit unless version.go was already
+# edited/staged (manual minor/major bump) or NGRAY_NO_VERSION_BUMP=1.
+set -euo pipefail
+
+[ "${NGRAY_NO_VERSION_BUMP:-}" = "1" ] && exit 0
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+file="internal/version/version.go"
+[ -f "$file" ] || exit 0
+
+if git diff --cached --quiet -- "$file" && git diff --quiet -- "$file"; then
+    bash scripts/bump-version.sh --stage
+elif ! git diff --cached --quiet -- "$file"; then
+    : # manual staged version (minor/major) — respect it
+else
+    git add -- "$file" # manual unstaged version — stage it as-is
+fi
